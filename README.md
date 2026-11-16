@@ -63,6 +63,10 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.8
+- Corrige el error de `flutter analyze` de la 1.0.7: `Undefined class 'ValueListenable'` (se importa desde
+  `package:flutter/foundation.dart`). Es la misma 1.0.7 de diseño, ya compilable.
+
 ## Cambios 1.0.7 (diseño)
 Primera entrega del rediseño de inicio (estilo PlayZ TV, sin escudos, marcadores, canales ni categorías).
 - **Inicio**: cabecera con ★ favoritos, ⟳ actualizar y 🔍 buscar; fila de **chips con contador**
@@ -78,7 +82,7 @@ Primera entrega del rediseño de inicio (estilo PlayZ TV, sin escudos, marcadore
   reproductor, borrar datos de la app (favoritos e historial), versión y salir.
 - Los favoritos y el historial de búsqueda son locales; el endpoint `/api/channels` sigue en el backend
   pero la app ya no lo usa.
-- Pendiente para la 1.0.8: `/api/config` (banner de actualización, URL de la API remota), reporte de enlaces
+- Pendiente para la 1.0.9: `/api/config` (banner de actualización, URL de la API remota), reporte de enlaces
   caídos y caché de la agenda.
 
 ## Cambios 1.0.6
