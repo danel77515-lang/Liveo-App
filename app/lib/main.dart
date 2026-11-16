@@ -17,7 +17,7 @@ const String apiBase = String.fromEnvironment(
 );
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.1';
+const String liveoVersion = '1.0.2';
 
 void main() => runApp(const LiveoApp());
 
@@ -884,6 +884,409 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Logo de Liveo (anillo de señal + play + punto "en vivo")
+// ---------------------------------------------------------------------------
+
+/// Dibuja el logo en un lienzo de 100 x 100 unidades. Es la misma geometría
+/// que usa app/branding/generate_icons.py para el icono de la app.
+class LogoPainter extends CustomPainter {
+  const LogoPainter({
+    this.ring = 1,
+    this.play = 1,
+    this.dot = 1,
+    this.glow = 0,
+  });
+
+  /// 0..1: cuánto del anillo está dibujado.
+  final double ring;
+
+  /// Escala del triángulo de play.
+  final double play;
+
+  /// Escala del punto en vivo.
+  final double dot;
+
+  /// 0..1: intensidad del resplandor detrás del anillo.
+  final double glow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 100, size.height / 100);
+    const c = Offset(50, 50);
+
+    if (glow > 0) {
+      canvas.drawCircle(
+        c,
+        46,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Pal.cyan.withValues(alpha: 0.30 * glow),
+              Pal.cyan.withValues(alpha: 0),
+            ],
+          ).createShader(Rect.fromCircle(center: c, radius: 46)),
+      );
+    }
+
+    // Anillo: arco de 300° con hueco arriba a la derecha.
+    final rect = Rect.fromCircle(center: c, radius: 31);
+    if (ring > 0) {
+      final ringPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7
+        ..strokeCap = StrokeCap.round
+        ..shader = const SweepGradient(
+          startAngle: 0,
+          endAngle: 5 * math.pi / 3,
+          colors: [Pal.lime, Pal.cyan, Pal.violet],
+          stops: [0, 0.5, 1],
+          transform: GradientRotation(-math.pi / 6),
+        ).createShader(rect);
+      canvas.drawArc(rect, -math.pi / 6, 5 * math.pi / 3 * ring, false, ringPaint);
+    }
+
+    // Triángulo de play con esquinas redondeadas.
+    if (play > 0) {
+      canvas.save();
+      canvas.translate(51, 50);
+      canvas.scale(play);
+      canvas.translate(-51, -50);
+      final path = Path()
+        ..moveTo(43, 36)
+        ..lineTo(43, 64)
+        ..lineTo(67, 50)
+        ..close();
+      final shader = const LinearGradient(colors: [Pal.lime, Pal.cyan])
+          .createShader(const Rect.fromLTWH(41, 36, 28, 28));
+      canvas.drawPath(path, Paint()..shader = shader);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..shader = shader
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5
+          ..strokeJoin = StrokeJoin.round,
+      );
+      canvas.restore();
+    }
+
+    // Punto "en vivo".
+    if (dot > 0) {
+      final d = Offset(
+        50 + 31 * math.cos(5 * math.pi / 3),
+        50 + 31 * math.sin(5 * math.pi / 3),
+      );
+      canvas.drawCircle(
+        d,
+        5.5 * dot * 1.4,
+        Paint()
+          ..color = Pal.pink.withValues(alpha: 0.55)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+      canvas.drawCircle(
+        d,
+        5.5 * dot,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Pal.pink, Pal.orange],
+          ).createShader(Rect.fromCircle(center: d, radius: 5.5)),
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(LogoPainter old) =>
+      old.ring != ring ||
+      old.play != play ||
+      old.dot != dot ||
+      old.glow != glow;
+}
+
+class LiveoLogo extends StatelessWidget {
+  const LiveoLogo({
+    super.key,
+    this.size = 48,
+    this.ring = 1,
+    this.play = 1,
+    this.dot = 1,
+    this.glow = 0,
+  });
+
+  final double size;
+  final double ring;
+  final double play;
+  final double dot;
+  final double glow;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: LogoPainter(ring: ring, play: play, dot: dot, glow: glow),
+      ),
+    );
+  }
+}
+
+/// El logo sobre un recuadro redondeado, como el icono de la app.
+class LogoTile extends StatelessWidget {
+  const LogoTile({super.key, this.size = 46});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.08),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xff2a2470), Color(0xff0b1230), Color(0xff08202c)],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: Pal.violet.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: LiveoLogo(size: size * 0.84),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Presentación al abrir la app
+// ---------------------------------------------------------------------------
+
+double _interval(double t, double a, double b, Curve curve) =>
+    curve.transform(((t - a) / (b - a)).clamp(0.0, 1.0).toDouble());
+
+/// Ondas de señal que salen del punto en vivo del logo.
+class _WavesPainter extends CustomPainter {
+  const _WavesPainter({required this.t, required this.unit, required this.strength});
+
+  final double t;
+  final double unit;
+  final double strength;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (strength <= 0) return;
+    final origin = Offset(
+      size.width / 2 + 15.5 * unit,
+      size.height / 2 - 26.85 * unit,
+    );
+    for (var k = 0; k < 2; k++) {
+      final p = (t + k * 0.5) % 1.0;
+      canvas.drawCircle(
+        origin,
+        (6 + p * 34) * unit,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2
+          ..color = Pal.pink.withValues(alpha: (1 - p) * 0.5 * strength),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_WavesPainter old) =>
+      old.t != t || old.unit != unit || old.strength != strength;
+}
+
+/// Cargador sin texto: barras de ecualizador que laten.
+class _EqLoader extends StatelessWidget {
+  const _EqLoader({required this.t});
+
+  final double t;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          for (var i = 0; i < 5; i++)
+            Container(
+              width: 6,
+              height: 10 + 26 * (0.5 + 0.5 * math.sin(2 * math.pi * (t + i * 0.17))),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(3),
+                color: Color.lerp(Pal.lime, Pal.violet, i / 4),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color.lerp(Pal.lime, Pal.violet, i / 4)!
+                        .withValues(alpha: 0.45),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key, required this.onFinished});
+
+  final VoidCallback onFinished;
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with TickerProviderStateMixin {
+  late final AnimationController _intro = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2400),
+  );
+  late final AnimationController _loop = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat();
+
+  @override
+  void initState() {
+    super.initState();
+    _intro.forward().whenComplete(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      if (mounted) widget.onFinished();
+    });
+  }
+
+  @override
+  void dispose() {
+    _intro.dispose();
+    _loop.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const logo = 168.0;
+    return Theme(
+      data: ThemeData.dark(useMaterial3: true),
+      child: AuroraBackground(
+        child: Material(
+          type: MaterialType.transparency,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_intro, _loop]),
+            builder: (context, _) {
+              final t = _intro.value;
+              final ring = _interval(t, 0.05, 0.55, Curves.easeInOutCubic);
+              final play = _interval(t, 0.35, 0.65, Curves.elasticOut);
+              final dot = _interval(t, 0.55, 0.72, Curves.easeOutBack);
+              final glow = _interval(t, 0.10, 0.80, Curves.easeOut);
+              final word = _interval(t, 0.50, 0.85, Curves.easeOutCubic);
+              final loader = _interval(t, 0.70, 0.95, Curves.easeOut);
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: logo * 1.8,
+                      height: logo * 1.8,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _WavesPainter(
+                                t: _loop.value,
+                                unit: logo / 100,
+                                strength: dot.clamp(0.0, 1.0).toDouble(),
+                              ),
+                            ),
+                          ),
+                          LiveoLogo(
+                            size: logo,
+                            ring: ring,
+                            play: play,
+                            dot: dot,
+                            glow: glow,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Opacity(
+                      opacity: word,
+                      child: Transform.translate(
+                        offset: Offset(0, 14 * (1 - word)),
+                        child: GradientText(
+                          'LIVEO',
+                          style: TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 14 - 10 * word,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                    Opacity(opacity: loader, child: _EqLoader(t: _loop.value)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Muestra la presentación y después hace un fundido hacia la app.
+class SplashGate extends StatefulWidget {
+  const SplashGate({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<SplashGate> createState() => _SplashGateState();
+}
+
+class _SplashGateState extends State<SplashGate> {
+  bool _done = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 650),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: _done
+          ? KeyedSubtree(key: const ValueKey('home'), child: widget.child)
+          : SplashScreen(
+              key: const ValueKey('splash'),
+              onFinished: () {
+                if (mounted) setState(() => _done = true);
+              },
+            ),
+    );
+  }
+}
+
 void openPlayer(BuildContext context, LiveEvent e) {
   final url = e.embedUrl;
   if (url == null) return;
@@ -971,7 +1374,9 @@ class _LiveoAppState extends State<LiveoApp> {
         scaffoldBackgroundColor: const Color(0xff070b14),
         useMaterial3: true,
       ),
-      home: HomePage(dark: mode == ThemeMode.dark, onTheme: _toggleTheme),
+      home: SplashGate(
+        child: HomePage(dark: mode == ThemeMode.dark, onTheme: _toggleTheme),
+      ),
     );
   }
 }
@@ -1242,6 +1647,8 @@ class _HomeTabState extends State<HomeTab> {
               _FadeSlide(
                 child: Row(
                   children: [
+                    const LogoTile(size: 48),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1249,7 +1656,7 @@ class _HomeTabState extends State<HomeTab> {
                           const GradientText(
                             'LIVEO',
                             style: TextStyle(
-                              fontSize: 36,
+                              fontSize: 30,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 4,
                               height: 1.1,
@@ -2172,7 +2579,7 @@ class SettingsPage extends StatelessWidget {
           ),
           child: const Row(
             children: [
-              Icon(Icons.bolt_rounded, color: Colors.white, size: 34),
+              LogoTile(size: 52),
               SizedBox(width: 14),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

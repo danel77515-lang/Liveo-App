@@ -62,6 +62,15 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.2
+- **Logo e icono propios**: anillo de señal en degradado, play y punto rojo "en vivo". Icono adaptable de Android
+  (con versión monocromática para iconos temáticos) incluido en `app/branding/android/res`; el workflow lo copia
+  a la APK automáticamente. Para regenerarlo: `python3 app/branding/generate_icons.py` (pillow y numpy).
+  `app/branding/liveo_icon_1024.png` es el icono en alta resolución.
+- **Presentación al abrir**: el anillo se dibuja, aparece el play y el punto en vivo con ondas de señal, entra
+  el nombre y un cargador de barras de ecualizador (sin texto) antes del fundido hacia el inicio.
+- El logo también aparece en la cabecera del inicio y en Ajustes. Pantalla de arranque nativa oscura.
+
 ## Cambios 1.0.1
 - El evento ahora se reproduce **dentro de la app**: el `embed_url` de Matchora se carga en un `iframe`
   (como indica https://matchora.to/developers) con selección automática de dominio de respaldo

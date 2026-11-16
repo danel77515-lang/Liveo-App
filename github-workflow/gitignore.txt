@@ -1,0 +1,14 @@
+**/.dart_tool/
+**/build/
+**/.flutter-plugins*
+app/android/
+app/ios/
+app/.metadata
+app/.packages
+backend/src/config.local.php
+.env
+*.jks
+*.keystore
+*.log
+.idea/
+.vscode/

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liveo/main.dart';
 
@@ -31,5 +32,14 @@ void main() {
     final e = LiveEvent.fromJson({'id': 'm1', 'live': true, 'minute': 22});
     expect(e.minute, '22');
     expect(e.live, isTrue);
+  });
+
+  testWidgets('LiveoLogo se dibuja sin errores', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: LiveoLogo(size: 80))),
+      ),
+    );
+    expect(find.byType(LiveoLogo), findsOneWidget);
   });
 }

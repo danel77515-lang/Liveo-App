@@ -1,0 +1,5 @@
+Si GitHub no sube la carpeta .github ni .gitignore:
+1. En GitHub: Add file > Create new file
+2. Nombre: .github/workflows/android-apk.yml  -> pega el contenido de android-apk.yml
+3. Nombre: .gitignore -> pega el contenido de gitignore.txt (opcional)
+Luego puedes borrar la carpeta github-workflow del repositorio.
