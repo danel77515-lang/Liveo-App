@@ -26,4 +26,10 @@ void main() {
     expect(e.embedUrl, isNull);
     expect(e.home, 'Local');
   });
+
+  test('LiveEvent.fromJson lee el minuto del partido', () {
+    final e = LiveEvent.fromJson({'id': 'm1', 'live': true, 'minute': 22});
+    expect(e.minute, '22');
+    expect(e.live, isTrue);
+  });
 }

@@ -62,6 +62,14 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.1
+- El evento ahora se reproduce **dentro de la app**: el `embed_url` de Matchora se carga en un `iframe`
+  (como indica https://matchora.to/developers) con selección automática de dominio de respaldo
+  (matchora.to / matchora.pro / es.matchora.pro). Ya no se abre la página completa con el aviso
+  "Watch free at matchora.to". La publicidad del reproductor no se oculta ni se tapa (condición de uso de Matchora).
+- Inicio rediseñado: fondo animado, carrusel de destacados, filtro por liga, tarjetas con equipos,
+  marcador y minuto, animaciones de entrada, barra inferior flotante y pantalla completa en el reproductor.
+
 ## Alcance de Matchora y Chromecast
 Matchora entrega `embed_url` para su reproductor embebido y no URLs directas de los streams, por lo que el Cast
 nativo solo podrá activarse para fuentes con media URL compatible. El botón actual informa esta limitación.
