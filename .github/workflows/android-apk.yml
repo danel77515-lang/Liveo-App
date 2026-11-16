@@ -105,8 +105,70 @@ jobs:
           print('MainActivity instalado en', f)
           PY
 
+      - name: Subir compileSdk a 37 (lo exige permission_handler_android)
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          done = False
+          for name in ('build.gradle.kts', 'build.gradle'):
+              f = pathlib.Path('android/app') / name
+              if not f.is_file():
+                  continue
+              s = f.read_text(encoding='utf-8')
+              repl = 'compileSdk = 37' if name.endswith('.kts') else 'compileSdk 37'
+              s2, n = re.subn(r'^(\s*)compileSdk(?:Version)?\b[^\n]*$', lambda m: m.group(1) + repl, s, count=1, flags=re.M)
+              if n == 0:
+                  s2, n = re.subn(r'^(\s*android\s*\{)', lambda m: m.group(1) + '\n    ' + repl, s, count=1, flags=re.M)
+              assert n == 1, 'No se pudo fijar compileSdk en ' + name
+              f.write_text(s2, encoding='utf-8')
+              print(name, '-> compileSdk 37')
+              done = True
+          assert done, 'No se encontró android/app/build.gradle(.kts)'
+          PY
+
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Corregir plugins antiguos sin namespace (Gradle 8)
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, re
+          from urllib.parse import urlparse, unquote
+          cfg = json.load(open('.dart_tool/package_config.json', encoding='utf-8'))
+          fixed = []
+          for pkg in cfg.get('packages', []):
+              root = pkg.get('rootUri', '')
+              if root.startswith('file://'):
+                  base = pathlib.Path(unquote(urlparse(root).path))
+              else:
+                  base = (pathlib.Path('.dart_tool') / unquote(root)).resolve()
+              android = base / 'android'
+              gradle = None
+              for name in ('build.gradle', 'build.gradle.kts'):
+                  if (android / name).is_file():
+                      gradle = android / name
+                      break
+              if gradle is None:
+                  continue
+              text = gradle.read_text(encoding='utf-8')
+              if re.search(r'^\s*namespace\b', text, re.M):
+                  continue
+              manifest = android / 'src' / 'main' / 'AndroidManifest.xml'
+              if not manifest.is_file():
+                  continue
+              mtext = manifest.read_text(encoding='utf-8')
+              m = re.search(r'package\s*=\s*"([^"]+)"', mtext)
+              if not m:
+                  continue
+              ns = m.group(1)
+              line = '    namespace = "%s"' % ns if gradle.suffix == '.kts' else '    namespace "%s"' % ns
+              new, n = re.subn(r'^(\s*android\s*\{)', lambda mm: mm.group(1) + '\n' + line, text, count=1, flags=re.M)
+              if n:
+                  gradle.write_text(new, encoding='utf-8')
+                  manifest.write_text(re.sub(r'\s+package\s*=\s*"[^"]*"', '', mtext, count=1), encoding='utf-8')
+                  fixed.append((pkg.get('name'), ns))
+          print('Plugins corregidos:', fixed or 'ninguno hacía falta')
+          PY
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
