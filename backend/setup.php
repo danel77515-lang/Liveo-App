@@ -45,8 +45,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 setting_value TEXT NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB');
+            ensure_sources_schema($pdo);
             $ok = true;
-            $messages[] = 'Base de datos "' . $dbName . '" y tablas listas.';
+            $messages[] = 'Base de datos "' . $dbName . '" y tablas listas (incluye los enlaces del panel de administración).';
         } catch (Throwable $e) {
             $ok = false;
             $messages[] = 'Error: ' . $e->getMessage();

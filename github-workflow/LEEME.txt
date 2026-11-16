@@ -3,3 +3,5 @@ Si GitHub no sube la carpeta .github ni .gitignore:
 2. Nombre: .github/workflows/android-apk.yml  -> pega el contenido de android-apk.yml
 3. Nombre: .gitignore -> pega el contenido de gitignore.txt (opcional)
 Luego puedes borrar la carpeta github-workflow del repositorio.
+
+Nota 1.0.3: el workflow usa app/native/MainActivity.kt.tpl y app/branding/. Sube la carpeta app completa.

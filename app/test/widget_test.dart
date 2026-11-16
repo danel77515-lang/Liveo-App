@@ -42,4 +42,26 @@ void main() {
     );
     expect(find.byType(LiveoLogo), findsOneWidget);
   });
+
+  test('LiveEvent.fromJson lee los enlaces m3u8 del panel', () {
+    final e = LiveEvent.fromJson({
+      'id': 'e1',
+      'live': false,
+      'links': [
+        {'id': 3, 'label': 'HD', 'url': 'https://x.test/a.m3u8', 'referer': 'https://x.test/'},
+        {'id': 4, 'label': 'Mala', 'url': 'ftp://x.test/a.m3u8'},
+      ],
+    });
+    expect(e.links.length, 1);
+    expect(e.links.first.label, 'HD');
+    expect(e.links.first.needsHeaders, isTrue);
+    expect(e.playable, isTrue);
+    expect(e.embedUrl, isNull);
+  });
+
+  test('Un evento sin enlaces ni embed no es reproducible', () {
+    final e = LiveEvent.fromJson({'id': 'e2'});
+    expect(e.links, isEmpty);
+    expect(e.playable, isFalse);
+  });
 }

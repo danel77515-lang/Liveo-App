@@ -32,6 +32,7 @@ URLs finales (IP de tu PC: `192.168.54.109`):
 | Canales | `http://192.168.54.109/Liveo/api/channels` |
 | Evento | `http://192.168.54.109/Liveo/api/events/{id}` |
 | Favoritos | `http://192.168.54.109/Liveo/api/favorites` (GET/POST/DELETE) |
+| **Administración** | `http://192.168.54.109/Liveo/admin/` |
 
 ### Para que el teléfono llegue a tu PC
 - Teléfono y PC en la misma red Wi-Fi.
@@ -61,6 +62,38 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
+
+## Cambios 1.0.3
+
+### Panel de administración (enlaces m3u8)
+No crea eventos: los eventos los genera Matchora y el panel solo les **agrega enlaces m3u8**.
+
+1. Abre `http://192.168.54.109/Liveo/admin/` (solo desde la red local). La primera vez crea la contraseña
+   (mínimo 8 caracteres, se guarda cifrada). Las tablas nuevas se crean solas; no hace falta reinstalar.
+2. **Eventos**: lista los eventos de Matchora por fecha (o solo los que están en vivo) con buscador.
+   Cada fila muestra cuántos enlaces tiene. Toca un evento para gestionarlos.
+3. En el evento: agrega enlaces (hasta 10) con nombre, URL m3u8 y, si el servidor del stream lo exige,
+   `Referer` y `User-Agent`. Puedes **Probar** cada enlace (el servidor comprueba que sea una lista HLS válida
+   y si es en vivo), editarlo, ordenarlo, desactivarlo o eliminarlo.
+4. **Con enlaces**: todos los eventos que ya tienen enlaces, y un botón para limpiar los de hace más de 3 días.
+
+La API (`schedule`, `live`, `events/{id}`) agrega a cada evento el campo `links` con sus enlaces activos.
+¿Olvidaste la contraseña? En phpMyAdmin: `DELETE FROM app_settings WHERE setting_key='admin_password_hash';`
+
+### App
+- **Inicio en listas**: dos secciones (En vivo y Próximos con señal), eventos agrupados por liga, una fila
+  compacta por evento (hora o minuto, equipos, marcador y botón de play). Sin círculos de iniciales ni carrusel.
+- Colores y efectos reducidos a lo mínimo: neutros, verde de acento y rojo solo para "en vivo".
+- **Barra inferior** estándar de Material (como la original). **Agenda** con el mismo formato que En vivo
+  (todos los eventos se pueden abrir) y navegación por días.
+- **Reproductor propio** (`lib/live_player.dart`): HLS en vivo con ExoPlayer, en horizontal, controles
+  minimalistas que se ocultan, selector de fuentes, reintento automático, botón "Ir al directo",
+  **imagen en imagen** (también al pulsar inicio) y **Chromecast**. Si un evento no tiene enlaces propios,
+  usa el reproductor de Matchora (iframe) también en horizontal; y si tiene ambos, puedes cambiar desde el menú de fuentes.
+- Android nativo: `app/native/MainActivity.kt.tpl` (PiP y pantalla encendida) y permisos de Cast se aplican
+  solos en el workflow.
+- Chromecast usa el paquete `flutter_chrome_cast` 0.0.11 (versión fija). El televisor descarga el stream por sí
+  mismo, así que las fuentes con Referer/User-Agent pueden no funcionar al transmitir.
 
 ## Cambios 1.0.2
 - **Logo e icono propios**: anillo de señal en degradado, play y punto rojo "en vivo". Icono adaptable de Android

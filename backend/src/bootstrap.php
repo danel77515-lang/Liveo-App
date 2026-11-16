@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 if (!defined('LIVEO_VERSION')) {
-    define('LIVEO_VERSION', '1.0.2');
+    define('LIVEO_VERSION', '1.0.3');
 }
 
 /** Configuración con valores por defecto aptos para XAMPP. */
@@ -409,3 +409,5 @@ function is_local_request(): bool
     }
     return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
 }
+
+require_once __DIR__ . '/sources.php';

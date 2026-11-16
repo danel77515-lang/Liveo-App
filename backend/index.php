@@ -29,6 +29,7 @@ if (!$pdo) {
         $pdo->query('SELECT 1 FROM favorites LIMIT 1');
         $pdo->query('SELECT 1 FROM api_cache LIMIT 1');
         $pdo->query('SELECT 1 FROM app_settings LIMIT 1');
+        $pdo->query('SELECT 1 FROM event_sources LIMIT 1');
         $add('Tablas instaladas', true);
     } catch (Throwable $e) {
         $add('Tablas instaladas', false, 'Ejecuta la instalación (botón de abajo)');
@@ -84,6 +85,12 @@ if (($_GET['check'] ?? '') === 'provider') {
   </div>
 
   <div class="card">
+    <h2>Panel de administración</h2>
+    <p class="mut">Agrega enlaces m3u8 a los eventos que genera Matchora. La app los reproduce con su reproductor integrado (con PiP y Chromecast).</p>
+    <p><a class="btn" href="admin/">Abrir panel</a></p>
+  </div>
+
+  <div class="card">
     <h2>Diagnóstico</h2>
     <table>
       <?php foreach ($checks as $c): ?>
@@ -112,7 +119,7 @@ if (($_GET['check'] ?? '') === 'provider') {
       <li><a class="link" href="api/schedule">api/schedule</a> (<code>?date=AAAA-MM-DD&amp;watchable=1</code>)</li>
       <li><a class="link" href="api/live">api/live</a></li>
       <li><a class="link" href="api/channels">api/channels</a></li>
-      <li><code>api/events/{id}</code></li>
+      <li><code>api/events/{id}</code> (cada evento incluye <code>links</code>: los m3u8 agregados desde el panel)</li>
       <li><code>api/favorites</code> (GET/POST/DELETE, con <code>device</code> y <code>event_id</code>)</li>
     </ul>
   </div>

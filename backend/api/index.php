@@ -81,14 +81,14 @@ try {
             }
         }
         $data = provider('schedule?' . http_build_query($params), 'schedule');
-        respond(['success' => true, 'date' => $date, 'events' => normalize_events(extract_list($data, 'events'))]);
+        respond(['success' => true, 'date' => $date, 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
     }
 
     // ---- En vivo -------------------------------------------------------
     if ($path === 'live') {
         require_method($method, ['GET']);
         $data = provider('live', 'live');
-        respond(['success' => true, 'events' => normalize_events(extract_list($data, 'events'))]);
+        respond(['success' => true, 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
     }
 
     // ---- Canales -------------------------------------------------------
@@ -103,7 +103,7 @@ try {
         require_method($method, ['GET']);
         $data = provider('events/' . rawurlencode($m[1]), 'event');
         $ev = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
-        respond(['success' => true, 'event' => normalize_event($ev)]);
+        respond(['success' => true, 'event' => attach_links([normalize_event($ev)])[0]]);
     }
 
     // ---- Favoritos (por dispositivo) --------------------------------------
