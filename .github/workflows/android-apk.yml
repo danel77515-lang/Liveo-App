@@ -51,10 +51,58 @@ jobs:
           if 'usesCleartextTraffic' not in s:
               s = s.replace('<application', '<application\n        android:usesCleartextTraffic="true"', 1)
           s = re.sub(r'android:label="[^"]*"', 'android:label="Liveo"', s, count=1)
+          # --- Reproductor integrado: PiP + Chromecast
+          if 'supportsPictureInPicture' not in s:
+              s = s.replace('<activity', '<activity\n            android:supportsPictureInPicture=\"true\"', 1)
+          for perm in ('android.permission.FOREGROUND_SERVICE', 'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK'):
+              if perm not in s:
+                  s = s.replace('<application', '<uses-permission android:name=\"' + perm + '\"/>\n    <application', 1)
+          if 'OPTIONS_PROVIDER_CLASS_NAME' not in s:
+              cast = ('    <meta-data android:name=\"com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME\"'
+                      ' android:value=\"com.felnanuke.google_cast.GoogleCastOptionsProvider\"/>\n'
+                      '        <service android:name=\"com.google.android.gms.cast.framework.media.MediaNotificationService\"'
+                      ' android:exported=\"false\" android:foregroundServiceType=\"mediaPlayback\"/>\n    ')
+              s = s.replace('</application>', cast + '</application>', 1)
           p.write_text(s, encoding='utf-8')
           assert 'android.permission.INTERNET' in s, 'Falta permiso INTERNET'
           assert 'usesCleartextTraffic' in s, 'Falta usesCleartextTraffic'
+          assert 'supportsPictureInPicture' in s, 'Falta supportsPictureInPicture'
+          assert 'OPTIONS_PROVIDER_CLASS_NAME' in s, 'Falta el proveedor de Cast'
           print(s)
+          PY
+
+      - name: Apply Liveo branding (icono + arranque oscuro)
+        run: |
+          python3 - <<'PY'
+          import pathlib, shutil
+          src = pathlib.Path('branding/android/res')
+          dst = pathlib.Path('android/app/src/main/res')
+          assert src.is_dir(), 'Falta app/branding/android/res'
+          shutil.copytree(src, dst, dirs_exist_ok=True)
+          bg = '''<?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item><color android:color="#FF070B14"/></item>
+          </layer-list>
+          '''
+          for d in ('drawable', 'drawable-v21'):
+              f = dst / d / 'launch_background.xml'
+              if f.exists():
+                  f.write_text(bg, encoding='utf-8')
+          print(sorted(x.name for x in dst.glob('mipmap-*')))
+          PY
+
+      - name: Apply native MainActivity (PiP + pantalla encendida)
+        run: |
+          python3 - <<'PY'
+          import glob, pathlib, re
+          tpl = pathlib.Path('native/MainActivity.kt.tpl').read_text(encoding='utf-8')
+          files = glob.glob('android/app/src/main/**/MainActivity.kt', recursive=True)
+          assert files, 'No se encontró MainActivity.kt generado por flutter create'
+          f = pathlib.Path(files[0])
+          m = re.search(r'^package\s+([\w.]+)', f.read_text(encoding='utf-8'), re.M)
+          assert m, 'MainActivity.kt sin package'
+          f.write_text(tpl.replace('__PKG__', m.group(1)), encoding='utf-8')
+          print('MainActivity instalado en', f)
           PY
 
       - name: Install dependencies
