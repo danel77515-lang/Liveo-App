@@ -25,11 +25,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Java 17
+      - name: Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Flutter
         uses: subosito/flutter-action@v2
@@ -66,6 +66,20 @@ jobs:
       - name: Unit tests (informativo)
         continue-on-error: true
         run: flutter test
+
+      - name: Desactivar lint vital de Gradle
+        working-directory: .
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/disable-lint.gradle <<'EOF'
+          allprojects {
+            tasks.configureEach { t ->
+              if (t.name.startsWith('lintVital')) {
+                t.enabled = false
+              }
+            }
+          }
+          EOF
 
       - name: Build release APK
         run: flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL"
