@@ -63,6 +63,12 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.4
+- **Corrige el error de compilación de Chromecast** (`Namespace not specified … flutter_chrome_cast`): el paquete
+  pasa de la 0.0.11 (antigua, sin `namespace`) a la **2.0.0**, compatible con el Gradle actual.
+- El workflow suma un paso de seguridad que agrega el `namespace` a cualquier plugin antiguo que no lo traiga.
+- El único archivo de workflow es `.github/workflows/android-apk.yml` (se eliminó la copia `github-workflow/`).
+
 ## Cambios 1.0.3
 
 ### Panel de administración (enlaces m3u8)
@@ -92,7 +98,7 @@ La API (`schedule`, `live`, `events/{id}`) agrega a cada evento el campo `links`
   usa el reproductor de Matchora (iframe) también en horizontal; y si tiene ambos, puedes cambiar desde el menú de fuentes.
 - Android nativo: `app/native/MainActivity.kt.tpl` (PiP y pantalla encendida) y permisos de Cast se aplican
   solos en el workflow.
-- Chromecast usa el paquete `flutter_chrome_cast` 0.0.11 (versión fija). El televisor descarga el stream por sí
+- Chromecast usa el paquete `flutter_chrome_cast` 2.0.0 (versión fija). El televisor descarga el stream por sí
   mismo, así que las fuentes con Referer/User-Agent pueden no funcionar al transmitir.
 
 ## Cambios 1.0.2

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_chrome_cast/lib.dart' show GoogleCastDevice;
+import 'package:flutter_chrome_cast/flutter_chrome_cast.dart' show GoogleCastDevice;
 import 'package:video_player/video_player.dart';
 
 import 'cast_service.dart';

@@ -2,7 +2,18 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_chrome_cast/lib.dart';
+import 'package:flutter_chrome_cast/flutter_chrome_cast.dart'
+    show
+        CastMediaStreamType,
+        GoogleCastConnectState,
+        GoogleCastContext,
+        GoogleCastDevice,
+        GoogleCastDiscoveryCriteria,
+        GoogleCastDiscoveryManager,
+        GoogleCastMediaInformationIOS,
+        GoogleCastOptionsAndroid,
+        GoogleCastRemoteMediaClient,
+        GoogleCastSessionManager;
 
 /// Chromecast (Google Cast) con el receptor multimedia por defecto, que
 /// reproduce listas HLS (m3u8) públicas en el televisor.
@@ -15,8 +26,11 @@ class CastService {
     if (!Platform.isAndroid) return;
     try {
       const appId = GoogleCastDiscoveryCriteria.kDefaultApplicationId;
-      GoogleCastContext.instance.setSharedInstanceWithOptions(
-        GoogleCastOptionsAndroid(appId: appId),
+      await GoogleCastContext.instance.setSharedInstanceWithOptions(
+        GoogleCastOptionsAndroid(
+          appId: appId,
+          stopCastingOnAppTerminated: true,
+        ),
       );
       ready = true;
     } catch (e) {
@@ -52,7 +66,7 @@ class CastService {
 
   static Future<void> load(String url) {
     return GoogleCastRemoteMediaClient.instance.loadMedia(
-      GoogleCastMediaInformationAndroid(
+      GoogleCastMediaInformationIOS(
         contentId: url,
         streamType: CastMediaStreamType.LIVE,
         contentUrl: Uri.parse(url),
