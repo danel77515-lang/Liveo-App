@@ -63,6 +63,24 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.7 (diseño)
+Primera entrega del rediseño de inicio (estilo PlayZ TV, sin escudos, marcadores, canales ni categorías).
+- **Inicio**: cabecera con ★ favoritos, ⟳ actualizar y 🔍 buscar; fila de **chips con contador**
+  (Todos · En vivo · Hoy · Mañana) y tarjetas de evento con liga, equipos, hora, día y cuenta atrás
+  («Empieza en 59:33») o «EN VIVO» con el minuto. La pantalla «En vivo» pasa a ser un chip.
+- **Barra inferior flotante** en píldora: Eventos · Agenda · Ajustes.
+- **Buscador**: pantalla propia con campo redondeado, sugerencias (en vivo ahora y ligas), historial reciente,
+  búsqueda sin acentos ni mayúsculas, coincidencias resaltadas y filtro «Solo en vivo». Busca en los eventos
+  de hoy y mañana.
+- **Favoritos** (★): guardados en el teléfono por evento; también se marcan con la estrella de cada tarjeta.
+- **Agenda**: selector de día en formato compacto y las mismas tarjetas.
+- **Ajustes** en tarjetas: modo oscuro, **imagen en imagen al salir** (ahora se puede desactivar), servidor,
+  reproductor, borrar datos de la app (favoritos e historial), versión y salir.
+- Los favoritos y el historial de búsqueda son locales; el endpoint `/api/channels` sigue en el backend
+  pero la app ya no lo usa.
+- Pendiente para la 1.0.8: `/api/config` (banner de actualización, URL de la API remota), reporte de enlaces
+  caídos y caché de la agenda.
+
 ## Cambios 1.0.6
 - Corrige el error de Gradle `permission_handler_android requires … compile against version 37`: el workflow
   sube `compileSdk` a 37 en `android/app/build.gradle(.kts)` (compatible hacia atrás).

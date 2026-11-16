@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -15,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.6';
+const String liveoVersion = '1.0.7';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -679,70 +680,168 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int tab = 0;
+  final ValueNotifier<int> _refreshHome = ValueNotifier<int>(0);
+  final ValueNotifier<int> _refreshAgenda = ValueNotifier<int>(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _startClock();
+    FavStore.instance.load();
+  }
+
+  @override
+  void dispose() {
+    _refreshHome.dispose();
+    _refreshAgenda.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
+    if (tab == 0) {
+      _refreshHome.value++;
+    } else if (tab == 1) {
+      _refreshAgenda.value++;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    const titles = ['Liveo', 'Agenda', 'Ajustes'];
     return Scaffold(
+      extendBody: true,
       appBar: AppBar(
-        title: const Row(
-          children: [
-            LiveoLogo(size: 26),
-            SizedBox(width: 10),
-            Text(
-              'LIVEO',
-              style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 2.5),
-            ),
-          ],
-        ),
+        titleSpacing: 16,
+        title: tab == 0
+            ? const Row(
+                children: [
+                  LiveoLogo(size: 26),
+                  SizedBox(width: 10),
+                  Text(
+                    'LIVEO',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2.5,
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                titles[tab],
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+        actions: [
+          IconButton(
+            tooltip: 'Favoritos',
+            onPressed: () => Navigator.of(context)
+                .push(_fadeRoute(const FavoritesPage())),
+            icon: const Icon(Icons.star_rounded),
+          ),
+          IconButton(
+            tooltip: 'Actualizar',
+            onPressed: _reload,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: 'Buscar',
+            onPressed: () =>
+                Navigator.of(context).push(_fadeRoute(const SearchPage())),
+            icon: const Icon(Icons.search_rounded),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: IndexedStack(
         index: tab,
         children: [
-          const HomeTab(),
-          const EventsTab(path: 'live', title: 'En vivo'),
-          const EventsTab(path: 'schedule', title: 'Agenda', withDate: true),
+          EventsHome(refresh: _refreshHome),
+          AgendaTab(refresh: _refreshAgenda),
           SettingsPage(dark: widget.dark, onTheme: widget.onTheme),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (i) => setState(() => tab = i),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Inicio',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sensors_outlined),
-            selectedIcon: Icon(Icons.sensors),
-            label: 'En vivo',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
-            label: 'Agenda',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune_outlined),
-            selectedIcon: Icon(Icons.tune),
-            label: 'Ajustes',
-          ),
-        ],
+      bottomNavigationBar: _FloatingNav(
+        index: tab,
+        onChanged: (i) => setState(() => tab = i),
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Listas de eventos (compactas, agrupadas por liga)
+// Utilidades: reloj, transiciones, texto sin acentos
 // ---------------------------------------------------------------------------
 
-List<String>? _scoreParts(String? s) {
-  if (s == null) return null;
-  final p = s.split(RegExp(r'\s*[-:–]\s*'));
-  if (p.length == 2 && p[0].isNotEmpty && p[1].isNotEmpty) return p;
-  return null;
+/// Reloj de 1 segundo para las cuentas atrás (solo reconstruye sus textos).
+final ValueNotifier<int> _clock = ValueNotifier<int>(0);
+Timer? _clockTimer;
+
+void _startClock() {
+  _clockTimer ??= Timer.periodic(
+    const Duration(seconds: 1),
+    (t) => _clock.value++,
+  );
+}
+
+Route<void> _fadeRoute(Widget page) {
+  return PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (context, animation, secondary) => page,
+    transitionsBuilder: (context, animation, secondary, child) {
+      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOut);
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.03),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+const String _fromChars = 'áàäâãåéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÅÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ';
+const String _toChars = 'aaaaaaeeeeiiiiooooouuuuncAAAAAAEEEEIIIIOOOOOUUUUNC';
+
+final Map<String, String> _foldMap = () {
+  final m = <String, String>{};
+  for (var i = 0; i < _fromChars.length && i < _toChars.length; i++) {
+    m[_fromChars[i]] = _toChars[i];
+  }
+  return m;
+}();
+
+/// Minúsculas y sin acentos, manteniendo la longitud (para poder resaltar).
+String _fold(String s) {
+  final b = StringBuffer();
+  for (final ch in s.split('')) {
+    b.write(_foldMap[ch] ?? ch);
+  }
+  return b.toString().toLowerCase();
+}
+
+String _p2(int n) => n.toString().padLeft(2, '0');
+
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+const List<String> _weekdays = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+const List<String> _months = [
+  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+];
+
+String _dayText(DateTime d) =>
+    '${_weekdays[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
+
+String _dayLabel(DateTime k) {
+  final now = DateTime.now();
+  if (_sameDay(k, now)) return 'Hoy';
+  if (_sameDay(k, now.add(const Duration(days: 1)))) return 'Mañana';
+  return fmtDm(k);
 }
 
 int _byKickoff(LiveEvent a, LiveEvent b) {
@@ -754,8 +853,263 @@ int _byKickoff(LiveEvent a, LiveEvent b) {
   return ta.compareTo(tb);
 }
 
-class _TimeCell extends StatelessWidget {
-  const _TimeCell({required this.event});
+/// En vivo primero y después por hora de inicio.
+int _liveFirst(LiveEvent a, LiveEvent b) {
+  if (a.live != b.live) return a.live ? -1 : 1;
+  return _byKickoff(a, b);
+}
+
+// ---------------------------------------------------------------------------
+// Datos compartidos y favoritos
+// ---------------------------------------------------------------------------
+
+/// Eventos cargados (en vivo + hoy + mañana). Los usan el inicio, el buscador
+/// y los favoritos.
+class EventsStore {
+  EventsStore._();
+
+  static final EventsStore instance = EventsStore._();
+
+  List<LiveEvent> all = const <LiveEvent>[];
+
+  Future<List<LiveEvent>> load() async {
+    Object? firstError;
+    Future<List<LiveEvent>> safe(String path) async {
+      try {
+        return await LiveoApi.events(path);
+      } catch (e) {
+        firstError ??= e;
+        return const <LiveEvent>[];
+      }
+    }
+
+    final now = DateTime.now();
+    final res = await Future.wait([
+      safe('live'),
+      safe('schedule?date=${fmtYmd(now)}'),
+      safe('schedule?date=${fmtYmd(now.add(const Duration(days: 1)))}'),
+    ]);
+    final byKey = <String, LiveEvent>{};
+    for (final list in res) {
+      for (final e in list) {
+        final key =
+            e.id.isEmpty ? '${e.home}|${e.away}|${e.kickoff}' : e.id;
+        byKey.putIfAbsent(key, () => e);
+      }
+    }
+    final merged = byKey.values.toList()..sort(_byKickoff);
+    if (merged.isEmpty && firstError != null) {
+      throw firstError!;
+    }
+    all = merged;
+    return merged;
+  }
+}
+
+/// Favoritos guardados en el teléfono (por id de evento).
+class FavStore {
+  FavStore._();
+
+  static final FavStore instance = FavStore._();
+  static const String _key = 'favEvents';
+
+  final ValueNotifier<List<String>> ids =
+      ValueNotifier<List<String>>(<String>[]);
+
+  Future<void> load() async {
+    final p = await SharedPreferences.getInstance();
+    ids.value = List<String>.from(p.getStringList(_key) ?? const <String>[]);
+  }
+
+  Future<void> toggle(String id) async {
+    if (id.isEmpty) return;
+    final list = <String>[...ids.value];
+    if (!list.remove(id)) {
+      list.add(id);
+      if (list.length > 200) list.removeAt(0);
+    }
+    ids.value = list;
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_key, list);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Filtros del inicio
+// ---------------------------------------------------------------------------
+
+enum _Quick { all, live, today, tomorrow }
+
+/// Lo que se muestra en el inicio: eventos en vivo, o próximos con señal.
+List<LiveEvent> _homeEvents(List<LiveEvent> all) {
+  final from = DateTime.now().subtract(const Duration(minutes: 10));
+  final out = all.where((e) {
+    if (e.live) return true;
+    if (!e.playable) return false;
+    final k = e.kickoff;
+    return k == null || k.isAfter(from);
+  }).toList()
+    ..sort(_liveFirst);
+  return out;
+}
+
+List<LiveEvent> _applyQuick(List<LiveEvent> src, _Quick q) {
+  final now = DateTime.now();
+  final tm = now.add(const Duration(days: 1));
+  switch (q) {
+    case _Quick.all:
+      return src;
+    case _Quick.live:
+      return src.where((e) => e.live).toList();
+    case _Quick.today:
+      return src.where((e) {
+        final k = e.kickoff;
+        return e.live || (k != null && _sameDay(k, now));
+      }).toList();
+    case _Quick.tomorrow:
+      return src.where((e) {
+        final k = e.kickoff;
+        return !e.live && k != null && _sameDay(k, tm);
+      }).toList();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tarjeta de evento (sin escudos ni marcador)
+// ---------------------------------------------------------------------------
+
+/// Texto con las coincidencias de la búsqueda resaltadas.
+class _Hl extends StatelessWidget {
+  const _Hl(
+    this.text,
+    this.terms, {
+    this.style,
+    this.align = TextAlign.start,
+    this.maxLines = 1,
+  });
+
+  final String text;
+  final List<String> terms;
+  final TextStyle? style;
+  final TextAlign align;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = _fold(text);
+    if (terms.isEmpty || f.length != text.length) {
+      return Text(
+        text,
+        style: style,
+        textAlign: align,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+    final spans = <TextSpan>[];
+    var i = 0;
+    while (i < text.length) {
+      var bestAt = -1;
+      var bestLen = 0;
+      for (final t in terms) {
+        if (t.isEmpty) continue;
+        final at = f.indexOf(t, i);
+        if (at >= 0 &&
+            (bestAt < 0 || at < bestAt || (at == bestAt && t.length > bestLen))) {
+          bestAt = at;
+          bestLen = t.length;
+        }
+      }
+      if (bestAt < 0) {
+        spans.add(TextSpan(text: text.substring(i)));
+        break;
+      }
+      if (bestAt > i) {
+        spans.add(TextSpan(text: text.substring(i, bestAt)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(bestAt, bestAt + bestLen),
+          style: const TextStyle(
+            color: Pal.accent,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
+      i = bestAt + bestLen;
+    }
+    return Text.rich(
+      TextSpan(style: style, children: spans),
+      textAlign: align,
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+class _FavButton extends StatelessWidget {
+  const _FavButton({required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: FavStore.instance.ids,
+      builder: (context, ids, child) {
+        final fav = ids.contains(id);
+        return IconButton(
+          tooltip: fav ? 'Quitar de favoritos' : 'Añadir a favoritos',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 40, height: 32),
+          iconSize: 21,
+          onPressed: () => FavStore.instance.toggle(id),
+          icon: Icon(
+            fav ? Icons.star_rounded : Icons.star_border_rounded,
+            color: fav ? Pal.accent : _muted(context),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Countdown extends StatelessWidget {
+  const _Countdown({required this.kickoff});
+
+  final DateTime kickoff;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: _clock,
+      builder: (context, tick, child) {
+        final d = kickoff.difference(DateTime.now());
+        String t;
+        if (d.inSeconds <= 0) {
+          t = 'Por comenzar';
+        } else if (d.inDays >= 1) {
+          t = 'Empieza en ${d.inDays} d ${d.inHours.remainder(24)} h';
+        } else {
+          final h = d.inHours;
+          final m = d.inMinutes.remainder(60);
+          final s = d.inSeconds.remainder(60);
+          t = 'Empieza en ${h > 0 ? '$h:' : ''}${_p2(m)}:${_p2(s)}';
+        }
+        return Text(
+          t,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          style: TextStyle(fontSize: 12, color: _muted(context)),
+        );
+      },
+    );
+  }
+}
+
+class _CenterInfo extends StatelessWidget {
+  const _CenterInfo({required this.event});
 
   final LiveEvent event;
 
@@ -763,174 +1117,163 @@ class _TimeCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = event.kickoff;
     if (event.live) {
-      return Text(
-        minuteLabel(event.minute) ?? 'VIVO',
-        style: const TextStyle(
-          color: Pal.live,
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-        ),
+      final m = minuteLabel(event.minute);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.circle, size: 8, color: Pal.live),
+              SizedBox(width: 5),
+              Text(
+                'EN VIVO',
+                style: TextStyle(
+                  color: Pal.live,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          if (m != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                m,
+                style: const TextStyle(
+                  color: Pal.live,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+        ],
       );
     }
     if (k == null) {
-      return Text('--:--', style: TextStyle(color: _muted(context)));
+      return Text(
+        event.status,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 12, color: _muted(context)),
+      );
     }
-    final now = DateTime.now();
-    final today = k.year == now.year && k.month == now.month && k.day == now.day;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           fmtHm(k),
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
-        if (!today)
-          Text(
-            fmtDm(k),
-            style: TextStyle(fontSize: 11, color: _muted(context)),
+        Text(
+          _dayLabel(k),
+          style: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: Pal.accent,
           ),
+        ),
+        const SizedBox(height: 4),
+        _Countdown(kickoff: k),
       ],
     );
   }
 }
 
-class _TeamLine extends StatelessWidget {
-  const _TeamLine({required this.name, this.score});
-
-  final String name;
-  final String? score;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-          ),
-        ),
-        if (score != null) ...[
-          const SizedBox(width: 8),
-          Text(
-            score!,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _EventTile extends StatelessWidget {
-  const _EventTile({required this.event});
+class _EventCard extends StatelessWidget {
+  const _EventCard({
+    required this.event,
+    this.terms = const <String>[],
+    this.onOpened,
+  });
 
   final LiveEvent event;
+  final List<String> terms;
+  final VoidCallback? onOpened;
 
   @override
   Widget build(BuildContext context) {
-    final parts = _scoreParts(event.score);
-    return InkWell(
-      onTap: () => openEvent(context, event),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            SizedBox(width: 50, child: _TimeCell(event: event)),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _TeamLine(name: event.home, score: parts?[0]),
-                  const SizedBox(height: 5),
-                  _TeamLine(name: event.away, score: parts?[1]),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              event.playable
-                  ? Icons.play_circle_fill_rounded
-                  : Icons.play_circle_outline_rounded,
-              size: 28,
-              color: event.playable
-                  ? Pal.accent
-                  : _muted(context).withValues(alpha: 0.45),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Eventos agrupados por liga: un título pequeño y una tarjeta por liga.
-List<Widget> _groupedList(BuildContext context, List<LiveEvent> events) {
-  final groups = <String, List<LiveEvent>>{};
-  for (final e in events) {
-    (groups[e.league] ??= <LiveEvent>[]).add(e);
-  }
-  final line = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07);
-  final out = <Widget>[];
-  groups.forEach((league, list) {
-    out.add(
-      Padding(
-        padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
-        child: Text(
-          league.toUpperCase(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.8,
-            color: _muted(context),
-          ),
-        ),
-      ),
-    );
-    out.add(
-      Material(
-        color: _cardColor(context),
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          children: [
-            for (var i = 0; i < list.length; i++) ...[
-              if (i > 0)
-                Divider(height: 1, thickness: 1, indent: 12, endIndent: 12, color: line),
-              _EventTile(event: list[i]),
-            ],
-          ],
-        ),
-      ),
-    );
-  });
-  return out;
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title, this.count);
-
-  final String title;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
+    final border =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12);
+    const teamStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.w700);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: _cardColor(context),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: event.live ? Pal.live.withValues(alpha: 0.55) : border,
           ),
-          const SizedBox(width: 8),
-          Text('$count', style: TextStyle(color: _muted(context))),
-        ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            onOpened?.call();
+            openEvent(context, event);
+          },
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    const SizedBox(width: 40),
+                    Expanded(
+                      child: _Hl(
+                        event.league,
+                        terms,
+                        align: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: _muted(context),
+                        ),
+                      ),
+                    ),
+                    _FavButton(id: event.id),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _Hl(
+                        event.home,
+                        terms,
+                        align: TextAlign.center,
+                        maxLines: 2,
+                        style: teamStyle,
+                      ),
+                    ),
+                    SizedBox(width: 108, child: _CenterInfo(event: event)),
+                    Expanded(
+                      child: _Hl(
+                        event.away,
+                        terms,
+                        align: TextAlign.center,
+                        maxLines: 2,
+                        style: teamStyle,
+                      ),
+                    ),
+                  ],
+                ),
+                if (!event.playable)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Sin señal por ahora',
+                      style: TextStyle(fontSize: 11.5, color: _muted(context)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -944,8 +1287,34 @@ class _Note extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
-      child: Text(text, style: TextStyle(color: _muted(context))),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 24),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(color: _muted(context)),
+      ),
+    );
+  }
+}
+
+class _Label extends StatelessWidget {
+  const _Label(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 14, 2, 8),
+      child: Text(
+        text.toUpperCase(),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.9,
+          color: _muted(context),
+        ),
+      ),
     );
   }
 }
@@ -996,163 +1365,288 @@ class _ErrorView extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Inicio
+// Chips con contador
 // ---------------------------------------------------------------------------
 
-class _HomeData {
-  const _HomeData(this.live, this.upcoming);
+class _QuickChip extends StatelessWidget {
+  const _QuickChip({
+    required this.label,
+    required this.count,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.color,
+  });
 
-  final List<LiveEvent> live;
-  final List<LiveEvent> upcoming;
-}
-
-class HomeTab extends StatefulWidget {
-  const HomeTab({super.key});
-
-  @override
-  State<HomeTab> createState() => _HomeTabState();
-}
-
-class _HomeTabState extends State<HomeTab> {
-  late Future<_HomeData> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _load();
-  }
-
-  Future<_HomeData> _load() async {
-    Object? firstError;
-    Future<List<LiveEvent>> safe(String path) async {
-      try {
-        return await LiveoApi.events(path);
-      } catch (e) {
-        firstError ??= e;
-        return const <LiveEvent>[];
-      }
-    }
-
-    final res = await Future.wait([safe('live'), safe('schedule')]);
-    final live = res[0];
-    final schedule = res[1];
-    if (live.isEmpty && schedule.isEmpty && firstError != null) {
-      throw firstError!;
-    }
-    final liveIds = live.map((e) => e.id).toSet();
-    final from = DateTime.now().subtract(const Duration(minutes: 10));
-    // Próximos: solo los que tienen señal (enlace propio o Matchora).
-    final upcoming = schedule
-        .where((e) => !e.live && !liveIds.contains(e.id) && e.playable)
-        .where((e) => e.kickoff == null || e.kickoff!.isAfter(from))
-        .toList()
-      ..sort(_byKickoff);
-    final liveSorted = [...live]..sort(_byKickoff);
-    return _HomeData(liveSorted, upcoming.take(40).toList());
-  }
-
-  Future<void> _reload() async {
-    final f = _load();
-    setState(() => _future = f);
-    try {
-      await f;
-    } catch (_) {
-      // El error se muestra en el FutureBuilder.
-    }
-  }
+  final String label;
+  final int count;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<_HomeData>(
-      future: _future,
-      builder: (context, snap) {
-        if (snap.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snap.hasError) {
-          return _ErrorView(error: '${snap.error}', onRetry: _reload);
-        }
-        final data = snap.data ?? const _HomeData([], []);
-        return RefreshIndicator(
-          onRefresh: _reload,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-            children: [
-              _SectionHeader('En vivo', data.live.length),
-              if (data.live.isEmpty)
-                const _Note('No hay partidos en vivo ahora.')
-              else
-                ..._groupedList(context, data.live),
-              const SizedBox(height: 14),
-              _SectionHeader('Próximos', data.upcoming.length),
-              if (data.upcoming.isEmpty)
-                const _Note(
-                  'Aún no hay eventos con señal. Mira la Agenda para ver todos.',
-                )
-              else
-                ..._groupedList(context, data.upcoming),
-            ],
+    final cs = Theme.of(context).colorScheme;
+    final c = color ?? Pal.accent;
+    final border = cs.onSurface.withValues(alpha: 0.18);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: selected ? c.withValues(alpha: 0.14) : Colors.transparent,
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: selected ? c : border,
+            width: selected ? 1.4 : 1,
           ),
-        );
-      },
+        ),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  selected ? Icons.check_rounded : icon,
+                  size: 17,
+                  color: selected || color != null ? c : _muted(context),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$label ($count)',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: selected ? c : cs.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// En vivo y Agenda (mismo formato de lista)
+// Inicio (pestaña Eventos)
 // ---------------------------------------------------------------------------
 
-class EventsTab extends StatefulWidget {
-  const EventsTab({
-    super.key,
-    required this.path,
-    required this.title,
-    this.withDate = false,
-  });
+class EventsHome extends StatefulWidget {
+  const EventsHome({super.key, required this.refresh});
 
-  final String path;
-  final String title;
-  final bool withDate;
+  final ValueListenable<int> refresh;
 
   @override
-  State<EventsTab> createState() => _EventsTabState();
+  State<EventsHome> createState() => _EventsHomeState();
 }
 
-class _EventsTabState extends State<EventsTab> {
-  late Future<List<LiveEvent>> _future;
-  DateTime _date = DateTime.now();
-
-  String get _path =>
-      widget.withDate ? '${widget.path}?date=${fmtYmd(_date)}' : widget.path;
+class _EventsHomeState extends State<EventsHome> {
+  bool _loading = true;
+  String? _error;
+  List<LiveEvent> _events = const <LiveEvent>[];
+  _Quick _quick = _Quick.all;
 
   @override
   void initState() {
     super.initState();
-    _future = _fetch();
+    widget.refresh.addListener(_onRefresh);
+    _load(initial: true);
   }
 
-  Future<List<LiveEvent>> _fetch() async {
-    final list = await LiveoApi.events(_path);
-    return [...list]..sort(_byKickoff);
+  @override
+  void dispose() {
+    widget.refresh.removeListener(_onRefresh);
+    super.dispose();
   }
 
-  Future<void> _reload() async {
-    final f = _fetch();
-    setState(() => _future = f);
+  void _onRefresh() {
+    _load();
+  }
+
+  Future<void> _load({bool initial = false}) async {
+    if (!initial) {
+      setState(() {
+        _loading = _events.isEmpty;
+        _error = null;
+      });
+    }
     try {
-      await f;
-    } catch (_) {
-      // El error se muestra en el FutureBuilder.
+      final list = await EventsStore.instance.load();
+      if (!mounted) return;
+      setState(() {
+        _events = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (_events.isNotEmpty) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo actualizar la lista.')),
+        );
+        return;
+      }
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  String _emptyText() {
+    switch (_quick) {
+      case _Quick.all:
+        return 'Aún no hay eventos con señal. Mira la Agenda para ver todos.';
+      case _Quick.live:
+        return 'No hay partidos en vivo ahora.';
+      case _Quick.today:
+        return 'No hay más eventos para hoy.';
+      case _Quick.tomorrow:
+        return 'Todavía no hay eventos con señal para mañana.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return _ErrorView(error: _error!, onRetry: _load);
+    }
+    final base = _homeEvents(_events);
+    final shown = _applyQuick(base, _quick);
+    int count(_Quick q) => _applyQuick(base, q).length;
+    return Column(
+      children: [
+        SizedBox(
+          height: 54,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+            children: [
+              _QuickChip(
+                label: 'Todos',
+                count: count(_Quick.all),
+                icon: Icons.apps_rounded,
+                selected: _quick == _Quick.all,
+                onTap: () => setState(() => _quick = _Quick.all),
+              ),
+              _QuickChip(
+                label: 'En vivo',
+                count: count(_Quick.live),
+                icon: Icons.sensors_rounded,
+                color: Pal.live,
+                selected: _quick == _Quick.live,
+                onTap: () => setState(() => _quick = _Quick.live),
+              ),
+              _QuickChip(
+                label: 'Hoy',
+                count: count(_Quick.today),
+                icon: Icons.today_rounded,
+                selected: _quick == _Quick.today,
+                onTap: () => setState(() => _quick = _Quick.today),
+              ),
+              _QuickChip(
+                label: 'Mañana',
+                count: count(_Quick.tomorrow),
+                icon: Icons.schedule_rounded,
+                selected: _quick == _Quick.tomorrow,
+                onTap: () => setState(() => _quick = _Quick.tomorrow),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: shown.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(12, 40, 12, 110),
+                    children: [_Note(_emptyText())],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 110),
+                    itemCount: shown.length,
+                    itemBuilder: (context, i) => _EventCard(event: shown[i]),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agenda (por día)
+// ---------------------------------------------------------------------------
+
+class AgendaTab extends StatefulWidget {
+  const AgendaTab({super.key, required this.refresh});
+
+  final ValueListenable<int> refresh;
+
+  @override
+  State<AgendaTab> createState() => _AgendaTabState();
+}
+
+class _AgendaTabState extends State<AgendaTab> {
+  DateTime _date = DateTime.now();
+  bool _loading = true;
+  String? _error;
+  List<LiveEvent> _events = const <LiveEvent>[];
+  int _seq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.refresh.addListener(_onRefresh);
+    _load(initial: true);
+  }
+
+  @override
+  void dispose() {
+    widget.refresh.removeListener(_onRefresh);
+    super.dispose();
+  }
+
+  void _onRefresh() {
+    _load();
+  }
+
+  Future<void> _load({bool initial = false}) async {
+    final my = ++_seq;
+    if (!initial) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final list = await LiveoApi.events('schedule?date=${fmtYmd(_date)}');
+      if (!mounted || my != _seq) return;
+      setState(() {
+        _events = [...list]..sort(_byKickoff);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || my != _seq) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
     }
   }
 
   void _setDate(DateTime d) {
-    setState(() {
-      _date = d;
-      _future = _fetch();
-    });
+    setState(() => _date = d);
+    _load();
   }
 
   Future<void> _pickDate() async {
@@ -1166,26 +1660,38 @@ class _EventsTabState extends State<EventsTab> {
   }
 
   Widget _dateBar() {
+    final isToday = _sameDay(_date, DateTime.now());
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
       child: Row(
         children: [
           IconButton(
             tooltip: 'Día anterior',
             onPressed: () => _setDate(_date.subtract(const Duration(days: 1))),
-            icon: const Icon(Icons.chevron_left),
+            icon: const Icon(Icons.chevron_left_rounded),
           ),
           Expanded(
-            child: TextButton.icon(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.calendar_today_outlined, size: 18),
-              label: Text(fmtYmd(_date)),
+            child: Center(
+              child: ActionChip(
+                avatar: const Icon(Icons.calendar_today_outlined, size: 16),
+                label: Text(
+                  _dayText(_date),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                shape: const StadiumBorder(),
+                onPressed: _pickDate,
+              ),
             ),
           ),
+          if (!isToday)
+            TextButton(
+              onPressed: () => _setDate(DateTime.now()),
+              child: const Text('Hoy'),
+            ),
           IconButton(
             tooltip: 'Día siguiente',
             onPressed: () => _setDate(_date.add(const Duration(days: 1))),
-            icon: const Icon(Icons.chevron_right),
+            icon: const Icon(Icons.chevron_right_rounded),
           ),
         ],
       ),
@@ -1194,38 +1700,623 @@ class _EventsTabState extends State<EventsTab> {
 
   @override
   Widget build(BuildContext context) {
+    Widget body;
+    if (_loading) {
+      body = const Center(child: CircularProgressIndicator());
+    } else if (_error != null) {
+      body = _ErrorView(error: _error!, onRetry: _load);
+    } else {
+      body = RefreshIndicator(
+        onRefresh: _load,
+        child: _events.isEmpty
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(12, 40, 12, 110),
+                children: const [_Note('No hay eventos para este día.')],
+              )
+            : ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 110),
+                itemCount: _events.length,
+                itemBuilder: (context, i) => _EventCard(event: _events[i]),
+              ),
+      );
+    }
     return Column(
       children: [
-        if (widget.withDate) _dateBar(),
-        Expanded(
-          child: FutureBuilder<List<LiveEvent>>(
-            future: _future,
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snap.hasError) {
-                return _ErrorView(error: '${snap.error}', onRetry: _reload);
-              }
-              final events = snap.data ?? const <LiveEvent>[];
-              return RefreshIndicator(
-                onRefresh: _reload,
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+        _dateBar(),
+        Expanded(child: body),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Barra inferior flotante (píldora)
+// ---------------------------------------------------------------------------
+
+class _FloatingNav extends StatelessWidget {
+  const _FloatingNav({required this.index, required this.onChanged});
+
+  final int index;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    const icons = [
+      Icons.sensors_outlined,
+      Icons.calendar_month_outlined,
+      Icons.tune_outlined,
+    ];
+    const selectedIcons = [
+      Icons.sensors,
+      Icons.calendar_month,
+      Icons.tune,
+    ];
+    const labels = ['Eventos', 'Agenda', 'Ajustes'];
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Container(
+        height: 68,
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: _cardColor(context),
+          borderRadius: BorderRadius.circular(34),
+          border: Border.all(color: cs.onSurface.withValues(alpha: 0.12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            for (var i = 0; i < labels.length; i++)
+              Expanded(
+                child: _NavItem(
+                  icon: index == i ? selectedIcons[i] : icons[i],
+                  label: labels[i],
+                  selected: index == i,
+                  onTap: () => onChanged(i),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = selected ? Pal.accent : _muted(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: selected ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 24, color: c),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: c,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Favoritos
+// ---------------------------------------------------------------------------
+
+class FavoritesPage extends StatelessWidget {
+  const FavoritesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Favoritos',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      body: ValueListenableBuilder<List<String>>(
+        valueListenable: FavStore.instance.ids,
+        builder: (context, ids, child) {
+          final list = EventsStore.instance.all
+              .where((e) => ids.contains(e.id))
+              .toList()
+            ..sort(_liveFirst);
+          if (list.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _SectionHeader(widget.title, events.length),
-                    if (events.isEmpty)
-                      const _Note('No hay eventos disponibles en este momento.')
-                    else
-                      ..._groupedList(context, events),
+                    Icon(
+                      Icons.star_border_rounded,
+                      size: 48,
+                      color: _muted(context),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      ids.isEmpty
+                          ? 'Aún no tienes favoritos'
+                          : 'Tus favoritos no están en hoy ni en mañana',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      ids.isEmpty
+                          ? 'Toca la estrella de un evento para guardarlo aquí.'
+                          : 'Aparecerán aquí cuando vuelvan a estar en la agenda cargada.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: _muted(context)),
+                    ),
                   ],
                 ),
-              );
-            },
+              ),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+            itemCount: list.length,
+            itemBuilder: (context, i) => _EventCard(event: list[i]),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Buscador
+// ---------------------------------------------------------------------------
+
+class _SuggestChip extends StatelessWidget {
+  const _SuggestChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final c = color ?? Pal.accent;
+    return Material(
+      color: selected ? c.withValues(alpha: 0.16) : _cardColor(context),
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? c : cs.onSurface.withValues(alpha: 0.14),
+        ),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color ?? _muted(context)),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: selected ? c : cs.onSurface,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FadeIn extends StatelessWidget {
+  const _FadeIn({super.key, required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: Duration(milliseconds: 220 + math.min(index, 8) * 40),
+      curve: Curves.easeOut,
+      builder: (context, t, inner) => Opacity(
+        opacity: t,
+        child: Transform.translate(offset: Offset(0, (1 - t) * 12), child: inner),
+      ),
+      child: child,
+    );
+  }
+}
+
+class SearchPage extends StatefulWidget {
+  const SearchPage({super.key});
+
+  @override
+  State<SearchPage> createState() => _SearchPageState();
+}
+
+class _SearchPageState extends State<SearchPage> {
+  static const String _recentKey = 'recentSearches';
+
+  final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _focus = FocusNode();
+  List<LiveEvent> _events = EventsStore.instance.all;
+  List<String> _recent = <String>[];
+  bool _loading = false;
+  bool _onlyLive = false;
+  String _q = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocus);
+    _loadRecent();
+    if (_events.isEmpty) _fetch();
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_onFocus);
+    _focus.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onFocus() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _fetch() async {
+    setState(() => _loading = true);
+    try {
+      final list = await EventsStore.instance.load();
+      if (!mounted) return;
+      setState(() {
+        _events = list;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadRecent() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _recent = List<String>.from(p.getStringList(_recentKey) ?? const <String>[]);
+    });
+  }
+
+  Future<void> _storeRecent(List<String> list) async {
+    setState(() => _recent = list);
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_recentKey, list);
+  }
+
+  Future<void> _saveRecent(String raw) async {
+    final t = raw.trim();
+    if (t.length < 2) return;
+    final list = <String>[
+      t,
+      ..._recent.where((r) => r.toLowerCase() != t.toLowerCase()),
+    ];
+    if (list.length > 8) list.removeRange(8, list.length);
+    await _storeRecent(list);
+  }
+
+  Future<void> _removeRecent(String t) =>
+      _storeRecent(_recent.where((r) => r != t).toList());
+
+  Future<void> _clearRecent() => _storeRecent(<String>[]);
+
+  void _setQuery(String v) {
+    _ctrl.text = v;
+    _ctrl.selection = TextSelection.collapsed(offset: v.length);
+    setState(() => _q = v);
+  }
+
+  List<String> get _terms => _fold(_q)
+      .split(RegExp(r'\s+'))
+      .where((t) => t.isNotEmpty)
+      .toList();
+
+  List<LiveEvent> _results() {
+    final terms = _terms;
+    final out = _events.where((e) {
+      if (_onlyLive && !e.live) return false;
+      if (terms.isEmpty) return true;
+      final hay = _fold('${e.home} ${e.away} ${e.league}');
+      return terms.every((t) => hay.contains(t));
+    }).toList()
+      ..sort(_liveFirst);
+    return out;
+  }
+
+  Widget _searchBar(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final focused = _focus.hasFocus;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 12, 4),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Volver',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              height: 48,
+              decoration: BoxDecoration(
+                color: _cardColor(context),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: focused
+                      ? Pal.accent
+                      : cs.onSurface.withValues(alpha: 0.12),
+                  width: focused ? 1.6 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 14),
+                  Icon(
+                    Icons.search_rounded,
+                    color: focused ? Pal.accent : _muted(context),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _ctrl,
+                      focusNode: _focus,
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      onChanged: (v) => setState(() => _q = v),
+                      onSubmitted: _saveRecent,
+                      style: const TextStyle(fontSize: 16),
+                      decoration: const InputDecoration(
+                        isCollapsed: true,
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        hintText: 'Buscar equipo, liga o evento',
+                      ),
+                    ),
+                  ),
+                  if (_q.isNotEmpty)
+                    IconButton(
+                      tooltip: 'Borrar',
+                      onPressed: () => _setQuery(''),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    )
+                  else
+                    const SizedBox(width: 14),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _suggestions(BuildContext context) {
+    final leagues = <String, int>{};
+    for (final e in _events) {
+      leagues[e.league] = (leagues[e.league] ?? 0) + 1;
+    }
+    final top = leagues.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final liveCount = _events.where((e) => e.live).length;
+    return ListView(
+      key: const ValueKey('suggestions'),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      children: [
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        const _Label('Rápido'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _SuggestChip(
+              icon: Icons.sensors_rounded,
+              label: 'En vivo ahora ($liveCount)',
+              color: Pal.live,
+              onTap: () => setState(() => _onlyLive = true),
+            ),
+            for (final l in top.take(8))
+              _SuggestChip(
+                icon: Icons.emoji_events_outlined,
+                label: l.key,
+                onTap: () => _setQuery(l.key),
+              ),
+          ],
+        ),
+        if (_recent.isNotEmpty) ...[
+          Row(
+            children: [
+              const Expanded(child: _Label('Recientes')),
+              TextButton(
+                onPressed: _clearRecent,
+                child: const Text('Borrar todo'),
+              ),
+            ],
+          ),
+          for (final r in _recent)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: Icon(Icons.history_rounded, color: _muted(context)),
+              title: Text(r),
+              trailing: IconButton(
+                tooltip: 'Quitar',
+                icon: const Icon(Icons.close_rounded, size: 18),
+                onPressed: () => _removeRecent(r),
+              ),
+              onTap: () => _setQuery(r),
+            ),
+        ],
+        if (!_loading && _events.isEmpty)
+          const _Note('No hay eventos cargados todavía. Revisa tu conexión.'),
       ],
+    );
+  }
+
+  Widget _resultsView(BuildContext context) {
+    final list = _results();
+    final terms = _terms;
+    return ListView(
+      key: const ValueKey('results'),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  list.length == 1 ? '1 resultado' : '${list.length} resultados',
+                  style: TextStyle(color: _muted(context)),
+                ),
+              ),
+              _SuggestChip(
+                icon: Icons.sensors_rounded,
+                label: 'Solo en vivo',
+                color: Pal.live,
+                selected: _onlyLive,
+                onTap: () => setState(() => _onlyLive = !_onlyLive),
+              ),
+            ],
+          ),
+        ),
+        if (list.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 48),
+            child: Column(
+              children: [
+                Icon(Icons.search_off_rounded, size: 48, color: _muted(context)),
+                const SizedBox(height: 12),
+                Text(
+                  _q.trim().isEmpty
+                      ? 'No hay partidos en vivo ahora'
+                      : 'Sin resultados para “${_q.trim()}”',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Prueba con otro equipo o liga. Se busca en los eventos de hoy y mañana.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _muted(context)),
+                ),
+              ],
+            ),
+          )
+        else
+          for (var i = 0; i < list.length; i++)
+            _FadeIn(
+              key: ValueKey(list[i].id.isEmpty ? 'i$i' : list[i].id),
+              index: i,
+              child: _EventCard(
+                event: list[i],
+                terms: terms,
+                onOpened: () => _saveRecent(_q),
+              ),
+            ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showResults = _q.trim().isNotEmpty || _onlyLive;
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            _searchBar(context),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: showResults ? _resultsView(context) : _suggestions(context),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1417,40 +2508,191 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
 // Ajustes
 // ---------------------------------------------------------------------------
 
-class SettingsPage extends StatelessWidget {
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+    this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final border =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: _cardColor(context),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            child: Row(
+              children: [
+                Icon(icon, color: color ?? _muted(context)),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: color,
+                        ),
+                      ),
+                      if (subtitle != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            subtitle!,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: _muted(context),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (trailing != null)
+                  trailing!
+                else if (onTap != null)
+                  Icon(Icons.chevron_right_rounded, color: _muted(context)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.dark, required this.onTheme});
 
   final bool dark;
   final ValueChanged<bool> onTheme;
 
   @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  bool _pip = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _pip = p.getBool('pipOnLeave') ?? true);
+  }
+
+  Future<void> _setPip(bool v) async {
+    setState(() => _pip = v);
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('pipOnLeave', v);
+  }
+
+  Future<void> _clearData() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Borrar datos de la app'),
+        content: const Text(
+          'Se borrarán tus favoritos y el historial de búsquedas. '
+          'El tema y los demás ajustes no cambian.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final p = await SharedPreferences.getInstance();
+    await p.remove('favEvents');
+    await p.remove('recentSearches');
+    FavStore.instance.ids.value = <String>[];
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Datos borrados.')),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 24),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
       children: [
-        SwitchListTile(
-          title: const Text('Modo oscuro'),
-          value: dark,
-          onChanged: onTheme,
-          secondary: Icon(dark ? Icons.dark_mode : Icons.light_mode),
+        const _Label('General'),
+        _SettingsCard(
+          icon: widget.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+          title: 'Modo oscuro',
+          trailing: Switch(value: widget.dark, onChanged: widget.onTheme),
+          onTap: () => widget.onTheme(!widget.dark),
         ),
-        const ListTile(
-          leading: Icon(Icons.dns_outlined),
-          title: Text('Servidor'),
-          subtitle: Text(apiBase),
+        _SettingsCard(
+          icon: Icons.picture_in_picture_alt_outlined,
+          title: 'Imagen en imagen al salir',
+          subtitle: 'Al pulsar inicio con un directo abierto',
+          trailing: Switch(value: _pip, onChanged: _setPip),
+          onTap: () => _setPip(!_pip),
         ),
-        const ListTile(
-          leading: Icon(Icons.play_circle_outline_rounded),
-          title: Text('Reproductor'),
-          subtitle: Text(
-            'Propio (m3u8 en vivo) con imagen en imagen y Chromecast. '
-            'Matchora queda como respaldo.',
-          ),
+        const _SettingsCard(
+          icon: Icons.dns_outlined,
+          title: 'Servidor',
+          subtitle: apiBase,
         ),
-        const ListTile(
-          leading: LiveoLogo(size: 28),
-          title: Text('Liveo'),
-          subtitle: Text('Versión $liveoVersion'),
+        const _SettingsCard(
+          icon: Icons.play_circle_outline_rounded,
+          title: 'Reproductor',
+          subtitle: 'Propio (m3u8) con Chromecast. Matchora queda de respaldo.',
+        ),
+        const _Label('App'),
+        _SettingsCard(
+          icon: Icons.delete_outline_rounded,
+          title: 'Borrar datos de la app',
+          onTap: _clearData,
+        ),
+        const _SettingsCard(
+          icon: Icons.info_outline_rounded,
+          title: 'Liveo',
+          subtitle: 'Versión $liveoVersion',
+        ),
+        _SettingsCard(
+          icon: Icons.logout_rounded,
+          title: 'Salir de la aplicación',
+          color: Pal.live,
+          onTap: () => SystemNavigator.pop(),
         ),
       ],
     );
