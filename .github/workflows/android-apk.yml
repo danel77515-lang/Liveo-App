@@ -1,12 +1,9 @@
 name: Liveo Android APK
 
+# Solo compila a mano (Actions > Liveo Android APK > Run workflow). Antes corría en cada push
+# y llenaba el almacenamiento de artefactos de GitHub.
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
-    paths:
-      - 'app/**'
-      - '.github/workflows/android-apk.yml'
 
 permissions:
   contents: read
@@ -199,4 +196,4 @@ jobs:
         with:
           name: Liveo-Android-APK
           path: app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 14
+          retention-days: 2
