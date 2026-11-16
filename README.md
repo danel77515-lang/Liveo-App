@@ -63,6 +63,10 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.6
+- Corrige el error de Gradle `permission_handler_android requires … compile against version 37`: el workflow
+  sube `compileSdk` a 37 en `android/app/build.gradle(.kts)` (compatible hacia atrás).
+
 ## Cambios 1.0.5
 - Corrige los errores de `flutter analyze` de Chromecast 2.0.0: sus constantes son en minúscula
   (`GoogleCastConnectState.connected`, `CastMediaStreamType.live`).
