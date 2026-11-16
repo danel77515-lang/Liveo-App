@@ -41,7 +41,7 @@ class CastService {
   static bool get connected =>
       ready &&
       GoogleCastSessionManager.instance.connectionState ==
-          GoogleCastConnectState.ConnectionStateConnected;
+          GoogleCastConnectState.connected;
 
   /// Emite true/false cuando cambia la sesión de transmisión.
   static Stream<bool> get connectedStream => GoogleCastSessionManager
@@ -68,7 +68,7 @@ class CastService {
     return GoogleCastRemoteMediaClient.instance.loadMedia(
       GoogleCastMediaInformationIOS(
         contentId: url,
-        streamType: CastMediaStreamType.LIVE,
+        streamType: CastMediaStreamType.live,
         contentUrl: Uri.parse(url),
         contentType: 'application/x-mpegURL',
       ),
