@@ -1,0 +1,78 @@
+name: Liveo Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'app/**'
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Para cambiarla sin tocar el código: Settings > Secrets and variables > Actions > Variables > API_BASE_URL
+      API_BASE_URL: ${{ vars.API_BASE_URL || 'http://192.168.54.109/Liveo/api' }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform files
+        run: flutter create --platforms=android --org com.liveo.sports --project-name liveo .
+
+      - name: Configure Android manifest (INTERNET + HTTP local + nombre)
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          p = pathlib.Path('android/app/src/main/AndroidManifest.xml')
+          s = p.read_text(encoding='utf-8')
+          if 'android.permission.INTERNET' not in s:
+              s = s.replace('<application', '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
+          if 'usesCleartextTraffic' not in s:
+              s = s.replace('<application', '<application\n        android:usesCleartextTraffic="true"', 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Liveo"', s, count=1)
+          p.write_text(s, encoding='utf-8')
+          assert 'android.permission.INTERNET' in s, 'Falta permiso INTERNET'
+          assert 'usesCleartextTraffic' in s, 'Falta usesCleartextTraffic'
+          print(s)
+          PY
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Unit tests (informativo)
+        continue-on-error: true
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Liveo-Android-APK
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
