@@ -18,7 +18,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.11';
+const String liveoVersion = '1.0.12';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -870,7 +870,7 @@ int _byKickoff(LiveEvent a, LiveEvent b) {
 
 /// En vivo primero y después por hora de inicio.
 int _liveFirst(LiveEvent a, LiveEvent b) {
-  if (a.live != b.live) return a.live ? -1 : 1;
+  if (a.liveNow != b.liveNow) return a.liveNow ? -1 : 1;
   return _byKickoff(a, b);
 }
 
@@ -959,7 +959,7 @@ enum _Quick { all, live, today, tomorrow }
 List<LiveEvent> _homeEvents(List<LiveEvent> all) {
   final from = DateTime.now().subtract(const Duration(minutes: 10));
   final out = all.where((e) {
-    if (e.live) return true;
+    if (e.liveNow) return true;
     if (!e.playable) return false;
     final k = e.kickoff;
     return k == null || k.isAfter(from);
@@ -975,16 +975,16 @@ List<LiveEvent> _applyQuick(List<LiveEvent> src, _Quick q) {
     case _Quick.all:
       return src;
     case _Quick.live:
-      return src.where((e) => e.live).toList();
+      return src.where((e) => e.liveNow).toList();
     case _Quick.today:
       return src.where((e) {
         final k = e.kickoff;
-        return e.live || (k != null && _sameDay(k, now));
+        return e.liveNow || (k != null && _sameDay(k, now));
       }).toList();
     case _Quick.tomorrow:
       return src.where((e) {
         final k = e.kickoff;
-        return !e.live && k != null && _sameDay(k, tm);
+        return !e.liveNow && k != null && _sameDay(k, tm);
       }).toList();
   }
 }
@@ -1097,8 +1097,11 @@ String _hms(Duration d) {
       '${_p2(t.inSeconds.remainder(60))}';
 }
 
-/// Cuenta regresiva: "Empieza en 50:48". Al llegar a cero la tarjeta pasa sola
-/// a "En vivo" (sin esperar a que el servidor refresque la lista).
+/// La cuenta regresiva solo se muestra cuando falta poco para empezar.
+/// Más lejos, la tarjeta muestra solo la hora y el día.
+const Duration _countdownWindow = Duration(hours: 1);
+
+/// Cuenta regresiva: "Empieza en 50:48".
 class _Countdown extends StatelessWidget {
   const _Countdown({required this.kickoff});
 
@@ -1110,22 +1113,21 @@ class _Countdown extends StatelessWidget {
       valueListenable: _clock,
       builder: (context, tick, child) {
         final d = kickoff.difference(syncedNow());
-        String t;
-        if (d.inDays >= 1) {
-          t = 'Empieza en ${d.inDays} d ${d.inHours.remainder(24)} h';
-        } else {
-          // Redondea hacia arriba para que el último segundo sea 00:01.
-          final secs = (d.inMilliseconds / 1000).ceil();
-          final h = secs ~/ 3600;
-          final m = (secs % 3600) ~/ 60;
-          final s = secs % 60;
-          t = 'Empieza en ${h > 0 ? '$h:' : ''}${_p2(m)}:${_p2(s)}';
-        }
-        return Text(
-          t,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          style: TextStyle(fontSize: 12, color: _muted(context)),
+        // Redondea hacia arriba para que el último segundo sea 00:01.
+        final secs = (d.inMilliseconds / 1000).ceil().clamp(0, 359999).toInt();
+        final h = secs ~/ 3600;
+        final m = (secs % 3600) ~/ 60;
+        final s = secs % 60;
+        final t = 'Empieza en ${h > 0 ? '$h:' : ''}${_p2(m)}:${_p2(s)}';
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            t,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(fontSize: 12, color: _muted(context)),
+          ),
         );
       },
     );
@@ -1229,8 +1231,8 @@ class _CenterInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = event.kickoff;
-    if (event.live) return _LiveBlock(event: event);
     if (k == null) {
+      if (event.live) return _LiveBlock(event: event);
       return Text(
         event.status,
         textAlign: TextAlign.center,
@@ -1239,32 +1241,36 @@ class _CenterInfo extends StatelessWidget {
         style: TextStyle(fontSize: 12, color: _muted(context)),
       );
     }
-    // Cuando pasa la hora de inicio, el reloj de 1 s lo convierte en "en vivo".
+    // El reloj de 1 s decide en cada tick: en vivo, cuenta regresiva (solo si
+    // falta poco) o simplemente la hora y el día.
     return ValueListenableBuilder<int>(
       valueListenable: _clock,
       builder: (context, tick, child) {
-        if (!k.isAfter(syncedNow())) return _LiveBlock(event: event);
-        return child!;
-      },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            fmtHm(k),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          Text(
-            _dayLabel(k),
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: Pal.accent,
+        if (event.liveNow) return _LiveBlock(event: event);
+        final left = k.difference(syncedNow());
+        final showCountdown = left > Duration.zero && left <= _countdownWindow;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              fmtHm(k),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
-          ),
-          const SizedBox(height: 4),
-          _Countdown(kickoff: k),
-        ],
-      ),
+            Text(
+              _dayLabel(k),
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: Pal.accent,
+              ),
+            ),
+            if (showCountdown) ...[
+              const SizedBox(height: 4),
+              _Countdown(kickoff: k),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -1292,7 +1298,7 @@ class _EventCard extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-            color: event.live ? Pal.live.withValues(alpha: 0.55) : border,
+            color: event.liveNow ? Pal.live.withValues(alpha: 0.55) : border,
           ),
         ),
         clipBehavior: Clip.antiAlias,
@@ -2170,7 +2176,7 @@ class _SearchPageState extends State<SearchPage> {
   List<LiveEvent> _results() {
     final terms = _terms;
     final out = _events.where((e) {
-      if (_onlyLive && !e.live) return false;
+      if (_onlyLive && !e.liveNow) return false;
       if (terms.isEmpty) return true;
       final hay = _fold('${e.home} ${e.away} ${e.league}');
       return terms.every((t) => hay.contains(t));
@@ -2256,7 +2262,7 @@ class _SearchPageState extends State<SearchPage> {
     }
     final top = leagues.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final liveCount = _events.where((e) => e.live).length;
+    final liveCount = _events.where((e) => e.liveNow).length;
     return ListView(
       key: const ValueKey('suggestions'),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,

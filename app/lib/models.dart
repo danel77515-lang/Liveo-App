@@ -137,6 +137,21 @@ class LiveEvent {
 
   String get title => '$home vs $away';
 
+  /// En vivo "de verdad", mirando la hora y no solo la marca del proveedor:
+  /// - el proveedor lo marca en vivo pero su hora de inicio todavía no llegó
+  ///   -> NO está en vivo (se muestra la cuenta regresiva);
+  /// - su hora llegó hace poco (hasta 10 min) y el proveedor aún no lo marcó
+  ///   -> pasa a en vivo solo, sin esperar al refresco;
+  /// - sin hora de inicio se confía en el proveedor.
+  bool get liveNow {
+    final k = kickoff;
+    if (k == null) return live;
+    final now = syncedNow();
+    if (k.isAfter(now)) return false;
+    if (live) return true;
+    return now.difference(k) <= const Duration(minutes: 10);
+  }
+
   /// Tiene alguna señal: enlace propio o reproductor de Matchora.
   bool get playable => links.isNotEmpty || embedUrl != null;
 
