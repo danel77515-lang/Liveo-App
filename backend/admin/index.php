@@ -107,6 +107,119 @@ function probe_message(array $r): array
     return [$r['ok'] ? 'ok' : 'bad', ($r['ok'] ? '✔ ' : '✖ ') . $r['note']];
 }
 
+/** Lee y valida los campos de un evento propio del formulario. */
+function read_manual_fields(): array
+{
+    $f = [
+        'sport'      => trim((string)($_POST['sport'] ?? '')),
+        'league'     => trim((string)($_POST['league'] ?? '')),
+        'home'       => trim((string)($_POST['home'] ?? '')),
+        'away'       => trim((string)($_POST['away'] ?? '')),
+        'title'      => trim((string)($_POST['title'] ?? '')),
+        'start'      => trim((string)($_POST['start'] ?? '')),
+        'state_mode' => (string)($_POST['state_mode'] ?? 'auto'),
+        'start_ts'   => 0,
+        'err'        => null,
+    ];
+    $len = function (string $x): int {
+        return function_exists('mb_strlen') ? mb_strlen($x) : strlen($x);
+    };
+    if (!array_key_exists($f['state_mode'], manual_state_options())) {
+        $f['state_mode'] = 'auto';
+    }
+    $ts = $f['start'] !== '' ? strtotime($f['start']) : false;
+    if ($f['home'] === '' || $f['away'] === '') {
+        $f['err'] = 'Escribe el equipo local y el visitante.';
+    } elseif ($len($f['home']) > 120 || $len($f['away']) > 120) {
+        $f['err'] = 'Los nombres de los equipos admiten hasta 120 caracteres.';
+    } elseif ($len($f['sport']) > 80) {
+        $f['err'] = 'El deporte admite hasta 80 caracteres.';
+    } elseif ($len($f['league']) > 160) {
+        $f['err'] = 'La competición admite hasta 160 caracteres.';
+    } elseif ($len($f['title']) > 200) {
+        $f['err'] = 'El título admite hasta 200 caracteres.';
+    } elseif ($ts === false || $ts < 946684800 || $ts > 4102444800) {
+        $f['err'] = 'Elige una fecha y hora de inicio válidas.';
+    } else {
+        $f['start_ts'] = (int)$ts;
+    }
+    return $f;
+}
+
+/** Formulario de alta / edición de un evento propio. */
+function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
+{
+    $sports = ['Fútbol', 'Baloncesto', 'Tenis', 'Béisbol', 'Fútbol americano', 'Rugby', 'Voleibol', 'Automovilismo', 'Boxeo', 'MMA / UFC', 'Hockey', 'Otro'];
+    $leagues = [];
+    try {
+        foreach ($pdo->query("SELECT DISTINCT sport FROM manual_events WHERE sport <> '' ORDER BY id DESC LIMIT 40")->fetchAll(PDO::FETCH_COLUMN) as $x) {
+            if (!in_array($x, $sports, true)) {
+                $sports[] = (string)$x;
+            }
+        }
+        $leagues = $pdo->query("SELECT DISTINCT league FROM manual_events WHERE league <> '' ORDER BY id DESC LIMIT 60")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
+        $leagues = [];
+    }
+    $uid = 'm' . $mid;
+    ob_start();
+    ?>
+    <div class="card">
+      <h2><?= $mid > 0 ? 'Datos del evento' : 'Nuevo evento' ?></h2>
+      <form method="post">
+        <?= csrf_field() ?>
+        <input type="hidden" name="a" value="manual_save">
+        <input type="hidden" name="mid" value="<?= (int)$mid ?>">
+        <div class="grid">
+          <label>Deporte<input name="sport" list="sports-<?= h($uid) ?>" value="<?= h((string)($v['sport'] ?? '')) ?>" maxlength="80" placeholder="Fútbol"></label>
+          <label>Competición<input name="league" list="leagues-<?= h($uid) ?>" value="<?= h((string)($v['league'] ?? '')) ?>" maxlength="160" placeholder="Liga Profesional"></label>
+        </div>
+        <datalist id="sports-<?= h($uid) ?>"><?php foreach ($sports as $x): ?><option value="<?= h((string)$x) ?>"><?php endforeach; ?></datalist>
+        <datalist id="leagues-<?= h($uid) ?>"><?php foreach ($leagues as $x): ?><option value="<?= h((string)$x) ?>"><?php endforeach; ?></datalist>
+        <div class="grid">
+          <label>Equipo local<input name="home" value="<?= h((string)($v['home'] ?? '')) ?>" maxlength="120" required></label>
+          <label>Equipo visitante<input name="away" value="<?= h((string)($v['away'] ?? '')) ?>" maxlength="120" required></label>
+        </div>
+        <label>Título (opcional; si lo dejas vacío se usa «Local vs Visitante»)<input name="title" value="<?= h((string)($v['title'] ?? '')) ?>" maxlength="200"></label>
+        <div class="grid">
+          <label>Inicio<input type="datetime-local" name="start" id="start-<?= h($uid) ?>" value="<?= h((string)($v['start'] ?? '')) ?>" required></label>
+          <label>Finalización automática<input type="datetime-local" id="end-<?= h($uid) ?>" class="auto-end" disabled>
+            <span class="mut">Se calcula automáticamente <?= (int)$dur ?> minutos después del inicio. Puedes cambiar esta duración en <a class="link" href="?v=config">Configuración</a>.</span></label>
+        </div>
+        <label>Estado
+          <select name="state_mode">
+            <?php foreach (manual_state_options() as $k => $lab): ?>
+              <option value="<?= h($k) ?>" <?= ((string)($v['state_mode'] ?? 'auto')) === $k ? 'selected' : '' ?>><?= h($lab) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <div class="actions">
+          <button type="submit"><?= $mid > 0 ? 'Guardar cambios' : 'Crear evento' ?></button>
+        </div>
+      </form>
+      <script>
+      (function () {
+        var s = document.getElementById('start-<?= h($uid) ?>');
+        var e = document.getElementById('end-<?= h($uid) ?>');
+        var mins = <?= (int)$dur ?>;
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+        function upd() {
+          if (!s.value) { e.value = ''; return; }
+          var d = new Date(s.value);
+          if (isNaN(d.getTime())) { e.value = ''; return; }
+          d = new Date(d.getTime() + mins * 60000);
+          e.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
+        s.addEventListener('input', upd);
+        s.addEventListener('change', upd);
+        upd();
+      })();
+      </script>
+    </div>
+    <?php
+    return (string)ob_get_clean();
+}
+
 // ---------------------------------------------------------------------------
 // Estado: base de datos, contraseña y sesión
 // ---------------------------------------------------------------------------
@@ -282,6 +395,77 @@ if ($method === 'POST' && !$fatal) {
                 go($back);
                 break;
 
+            case 'manual_save':
+                $mid = (int)($_POST['mid'] ?? 0);
+                $f = read_manual_fields();
+                $_SESSION['manual_prefill'] = $f;
+                $errGo = $mid > 0 ? 'v=event&id=manual-' . $mid : 'v=manual_new';
+                if ($f['err'] !== null) {
+                    flash('bad', $f['err']);
+                    go($errGo);
+                }
+                if ($mid > 0) {
+                    $chk = $pdo->prepare('SELECT COUNT(*) FROM manual_events WHERE id = ?');
+                    $chk->execute([$mid]);
+                    if ((int)$chk->fetchColumn() === 0) {
+                        flash('bad', 'El evento ya no existe.');
+                        go('v=manual');
+                    }
+                    $pdo->prepare(
+                        'UPDATE manual_events SET sport = ?, league = ?, home = ?, away = ?, title = ?, start_ts = ?, state_mode = ? WHERE id = ?'
+                    )->execute([$f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode'], $mid]);
+                    unset($_SESSION['manual_prefill']);
+                    flash('ok', 'Cambios guardados.');
+                    go('v=event&id=manual-' . $mid);
+                }
+                $pdo->prepare(
+                    'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+                )->execute([$f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode']]);
+                $newId = (int)$pdo->lastInsertId();
+                unset($_SESSION['manual_prefill']);
+                flash('ok', 'Evento creado. Agrega sus señales en la sección de abajo.');
+                go('v=event&id=manual-' . $newId);
+                break;
+
+            case 'manual_toggle':
+                $mid = (int)($_POST['mid'] ?? 0);
+                $pdo->prepare('UPDATE manual_events SET active = 1 - active WHERE id = ?')->execute([$mid]);
+                flash('ok', 'Visibilidad del evento actualizada.');
+                go('v=event&id=manual-' . $mid);
+                break;
+
+            case 'manual_delete':
+                $mid = (int)($_POST['mid'] ?? 0);
+                $pdo->prepare('DELETE FROM event_sources WHERE event_id = ?')->execute(['manual-' . $mid]);
+                $pdo->prepare('DELETE FROM manual_events WHERE id = ?')->execute([$mid]);
+                flash('ok', 'Evento eliminado junto con sus enlaces.');
+                go('v=manual');
+                break;
+
+            case 'manual_purge':
+                $limit = time() - 3 * 86400;
+                $st = $pdo->prepare('SELECT id FROM manual_events WHERE start_ts < ?');
+                $st->execute([$limit]);
+                $old = $st->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($old as $oid) {
+                    $pdo->prepare('DELETE FROM event_sources WHERE event_id = ?')->execute(['manual-' . (int)$oid]);
+                }
+                $pdo->prepare('DELETE FROM manual_events WHERE start_ts < ?')->execute([$limit]);
+                flash('ok', 'Eventos propios de hace más de 3 días eliminados: ' . count($old) . '.');
+                go('v=manual');
+                break;
+
+            case 'config_save':
+                $minutes = (int)($_POST['duration'] ?? 0);
+                if ($minutes < 30 || $minutes > 720) {
+                    flash('bad', 'La duración debe estar entre 30 y 720 minutos.');
+                } else {
+                    set_setting($pdo, 'manual_event_duration', (string)$minutes);
+                    flash('ok', 'Duración guardada: ' . $minutes . ' minutos.');
+                }
+                go('v=config');
+                break;
+
             case 'delete_event':
                 if (valid_event_id($eid)) {
                     $st = $pdo->prepare('DELETE FROM event_sources WHERE event_id = ?');
@@ -350,12 +534,24 @@ if ($fatal) {
     if ($view === 'event' && valid_event_id((string)($_GET['id'] ?? ''))) {
         $eid = (string)$_GET['id'];
         $ev = null;
-        try {
-            $data = provider('events/' . rawurlencode($eid), 'event');
-            $raw = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
-            $ev = normalize_event($raw);
-        } catch (Throwable $e) {
-            $ev = null;
+        $manualRow = null;
+        if (preg_match('/^manual-(\d+)$/', $eid, $mm)) {
+            $mst = $pdo->prepare('SELECT * FROM manual_events WHERE id = ?');
+            $mst->execute([(int)$mm[1]]);
+            $manualRow = $mst->fetch() ?: null;
+            if ($manualRow === null) {
+                flash('bad', 'El evento propio ya no existe.');
+                go('v=manual');
+            }
+            $ev = manual_row_to_event($manualRow, manual_duration_minutes($pdo), time());
+        } else {
+            try {
+                $data = provider('events/' . rawurlencode($eid), 'event');
+                $raw = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
+                $ev = normalize_event($raw);
+            } catch (Throwable $e) {
+                $ev = null;
+            }
         }
         $st = $pdo->prepare('SELECT * FROM event_sources WHERE event_id = ? ORDER BY sort_order ASC, id ASC');
         $st->execute([$eid]);
@@ -373,15 +569,47 @@ if ($fatal) {
             . '<input type="hidden" name="event_id" value="' . h($eid) . '">'
             . '<input type="hidden" name="d" value="' . h($date) . '">';
         ?>
-        <p><a class="link" href="?v=home&d=<?= h(rawurlencode($date)) ?>">← Volver a los eventos</a></p>
+        <p><?php if ($manualRow): ?><a class="link" href="?v=manual">← Volver a los eventos propios</a><?php else: ?><a class="link" href="?v=home&d=<?= h(rawurlencode($date)) ?>">← Volver a los eventos</a><?php endif; ?></p>
         <div class="card">
           <h2><?= h($home !== '' ? $home : 'Evento') ?> <span class="mut">vs</span> <?= h($away) ?></h2>
           <p class="mut"><?= h($league) ?> · <?= h(fmt_ts($kick)) ?>
             <?php if ($isLive): ?> · <span class="tag live">EN VIVO</span><?php endif; ?>
             · ID <code><?= h($eid) ?></code></p>
+          <?php if ($manualRow): ?>
+            <p class="mut">Evento propio · estado actual: <b><?= h((string)($ev['status'] ?? '')) ?></b><?= (int)$manualRow['active'] === 1 ? '' : ' · <span class="tag">Oculto en la app</span>' ?>.
+              Las señales se agregan abajo y la app las usa igual que en cualquier otro evento.</p>
+          <?php else: ?>
           <p class="mut">Reproductor de Matchora: <?= $hasEmbed ? 'disponible (la app lo usa si el evento no tiene enlaces propios)' : 'sin señal en Matchora' ?>.
             <?php if ($ev === null): ?><br>No se pudo consultar a Matchora; se muestran los datos guardados.<?php endif; ?></p>
+          <?php endif; ?>
         </div>
+        <?php
+        if ($manualRow) {
+            $mpre = $_SESSION['manual_prefill'] ?? null;
+            unset($_SESSION['manual_prefill']);
+            $mv = is_array($mpre) ? $mpre : [
+                'sport'      => (string)$manualRow['sport'],
+                'league'     => (string)$manualRow['league'],
+                'home'       => (string)$manualRow['home'],
+                'away'       => (string)$manualRow['away'],
+                'title'      => (string)$manualRow['title'],
+                'start'      => date('Y-m-d\TH:i', (int)$manualRow['start_ts']),
+                'state_mode' => (string)$manualRow['state_mode'],
+            ];
+            echo manual_form_html($pdo, $mv, (int)$manualRow['id'], manual_duration_minutes($pdo));
+            ?>
+            <div class="card">
+              <h2>Visibilidad y eliminación</h2>
+              <form method="post" class="actions">
+                <?= csrf_field() ?>
+                <input type="hidden" name="mid" value="<?= (int)$manualRow['id'] ?>">
+                <button name="a" value="manual_toggle" class="alt"><?= (int)$manualRow['active'] === 1 ? 'Ocultar en la app' : 'Mostrar en la app' ?></button>
+                <button name="a" value="manual_delete" class="danger" onclick="return confirm('¿Eliminar este evento y todos sus enlaces?')">Eliminar evento</button>
+              </form>
+            </div>
+            <?php
+        }
+        ?>
 
         <div class="card">
           <h2>Enlaces del evento (<?= count($rows) ?>)</h2>
@@ -455,6 +683,72 @@ if ($fatal) {
           <form method="post" style="margin-top:14px">
             <?= csrf_field() ?>
             <button name="a" value="purge" class="alt" onclick="return confirm('¿Borrar los enlaces de eventos de hace más de 3 días?')">Limpiar eventos de hace más de 3 días</button>
+          </form>
+        </div>
+        <?php
+    } elseif ($view === 'manual') {
+        // ---- Eventos propios ---------------------------------------------------
+        $rows = $pdo->query('SELECT * FROM manual_events ORDER BY start_ts DESC LIMIT 300')->fetchAll();
+        $linkCounts = [];
+        foreach ($pdo->query("SELECT event_id, COUNT(*) AS n, SUM(active) AS act FROM event_sources WHERE event_id LIKE 'manual-%' GROUP BY event_id")->fetchAll() as $r) {
+            $linkCounts[(string)$r['event_id']] = [(int)$r['n'], (int)$r['act']];
+        }
+        $durMin = manual_duration_minutes($pdo);
+        $nowTs = time();
+        ?>
+        <div class="card">
+          <div class="actions" style="justify-content:space-between">
+            <h2 style="margin:0">Eventos propios (<?= count($rows) ?>)</h2>
+            <a class="btn" href="?v=manual_new">+ Nuevo evento</a>
+          </div>
+          <p class="mut">Eventos que creas tú. Se mezclan con los de Matchora en la app y admiten enlaces como cualquier otro.</p>
+          <?php if (!$rows): ?><p class="mut">Todavía no creaste ningún evento.</p><?php endif; ?>
+          <?php foreach ($rows as $r):
+              $e = manual_row_to_event($r, $durMin, $nowTs);
+              $lc = $linkCounts['manual-' . (int)$r['id']] ?? [0, 0]; ?>
+            <a class="row" href="?v=event&id=<?= h(rawurlencode('manual-' . (int)$r['id'])) ?>">
+              <span class="t"><?= !empty($e['live']) ? '<span class="tag live">VIVO</span>' : h(fmt_ts($r['start_ts'])) ?></span>
+              <span class="m"><b><?= h($r['home']) ?></b> vs <b><?= h($r['away']) ?></b><small><?= h(trim($r['sport'] . ($r['sport'] !== '' && $r['league'] !== '' ? ' · ' : '') . $r['league'])) ?></small></span>
+              <span class="b">
+                <span class="tag"><?= h((string)$e['status']) ?></span>
+                <?php if ($lc[0] > 0): ?><span class="tag ok"><?= $lc[1] ?>/<?= $lc[0] ?> enlaces</span><?php else: ?><span class="tag">Sin enlaces</span><?php endif; ?>
+                <?php if ((int)$r['active'] !== 1): ?><span class="tag">Oculto</span><?php endif; ?>
+              </span>
+            </a>
+          <?php endforeach; ?>
+          <?php if ($rows): ?>
+          <form method="post" style="margin-top:14px">
+            <?= csrf_field() ?>
+            <button name="a" value="manual_purge" class="alt" onclick="return confirm('¿Borrar los eventos propios de hace más de 3 días y sus enlaces?')">Limpiar eventos de hace más de 3 días</button>
+          </form>
+          <?php endif; ?>
+        </div>
+        <?php
+    } elseif ($view === 'manual_new') {
+        // ---- Nuevo evento propio -------------------------------------------------
+        $mpre = $_SESSION['manual_prefill'] ?? null;
+        unset($_SESSION['manual_prefill']);
+        $mv = is_array($mpre) ? $mpre : [
+            'sport' => '', 'league' => '', 'home' => '', 'away' => '', 'title' => '',
+            'start' => date('Y-m-d\TH:i', (int)(ceil(time() / 900) * 900)),
+            'state_mode' => 'auto',
+        ];
+        echo '<p><a class="link" href="?v=manual">← Volver a los eventos propios</a></p>';
+        echo manual_form_html($pdo, $mv, 0, manual_duration_minutes($pdo));
+    } elseif ($view === 'config') {
+        // ---- Configuración -------------------------------------------------------
+        $durMin = manual_duration_minutes($pdo);
+        ?>
+        <div class="card narrow" style="margin:0 0 17px;max-width:560px">
+          <h2>Configuración</h2>
+          <form method="post">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="config_save">
+            <label>Duración de un evento propio (minutos)
+              <input type="number" name="duration" min="30" max="720" value="<?= (int)$durMin ?>" required>
+            </label>
+            <p class="mut">Define cuándo termina un evento en estado «Automático por horario»: inicio + esta duración. Mientras tanto figura en vivo y después pasa a finalizado. Por defecto 135 minutos (entre 30 y 720).</p>
+            <div class="actions"><button type="submit">Guardar</button></div>
           </form>
         </div>
         <?php
@@ -558,9 +852,9 @@ $view = (string)($_GET['v'] ?? 'home');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.14" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.14">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.14">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.15" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.15">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.15">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -585,6 +879,10 @@ $view = (string)($_GET['v'] ?? 'home');
   label { display:block; font-size:12px; color:#a9b8cc; margin:0 0 12px; }
   input { display:block; width:100%; margin-top:6px; background:#0a1421; color:var(--txt); border:1px solid #2b3c53; border-radius:10px; padding:11px 12px; font-size:14px; outline:none; transition:border-color .18s,box-shadow .18s; }
   input:focus { border-color:var(--accent2); box-shadow:0 0 0 3px rgba(112,223,176,.12); }
+  select { display:block; width:100%; margin-top:6px; background:#0a1421; color:var(--txt); border:1px solid #2b3c53; border-radius:10px; padding:11px 12px; font-size:14px; outline:none; }
+  select:focus { border-color:var(--accent2); box-shadow:0 0 0 3px rgba(112,223,176,.12); }
+  input.auto-end { border-style:dashed; opacity:.75; }
+  label .mut { display:block; margin-top:6px; font-size:11px; }
   input[type=checkbox] { display:inline-block; width:auto; margin:0 7px 0 0; accent-color:var(--accent2); }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .filters { display:grid; grid-template-columns:1fr 1.4fr auto auto; gap:12px; align-items:end; }
@@ -619,11 +917,13 @@ $view = (string)($_GET['v'] ?? 'home');
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.14" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.15" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
-      <a href="?v=home" class="<?= $view !== 'linked' ? 'on' : '' ?>">Eventos</a>
+      <a href="?v=home" class="<?= !in_array($view, ['linked', 'manual', 'manual_new', 'config'], true) ? 'on' : '' ?>">Eventos</a>
+      <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new'], true) ? 'on' : '' ?>">Eventos propios</a>
       <a href="?v=linked" class="<?= $view === 'linked' ? 'on' : '' ?>">Con enlaces</a>
+      <a href="?v=config" class="<?= $view === 'config' ? 'on' : '' ?>">Configuración</a>
       <a href="../">Backend</a>
       <form method="post" style="display:inline"><?= csrf_field() ?><input type="hidden" name="a" value="logout"><button type="submit">Cerrar sesión</button></form>
     </nav>

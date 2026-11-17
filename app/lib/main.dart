@@ -18,7 +18,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.12';
+const String liveoVersion = '1.0.13';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1232,7 +1232,7 @@ class _CenterInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = event.kickoff;
     if (k == null) {
-      if (event.live) return _LiveBlock(event: event);
+      if (event.liveNow) return _LiveBlock(event: event);
       return Text(
         event.status,
         textAlign: TextAlign.center,
@@ -1247,6 +1247,7 @@ class _CenterInfo extends StatelessWidget {
       valueListenable: _clock,
       builder: (context, tick, child) {
         if (event.liveNow) return _LiveBlock(event: event);
+        final label = event.stateLabel;
         final left = k.difference(syncedNow());
         final showCountdown = left > Duration.zero && left <= _countdownWindow;
         return Column(
@@ -1264,7 +1265,18 @@ class _CenterInfo extends StatelessWidget {
                 color: Pal.accent,
               ),
             ),
-            if (showCountdown) ...[
+            if (label != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _muted(context),
+                ),
+              ),
+            ] else if (showCountdown) ...[
               const SizedBox(height: 4),
               _Countdown(kickoff: k),
             ],

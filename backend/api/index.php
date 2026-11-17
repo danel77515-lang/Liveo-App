@@ -29,6 +29,20 @@ function require_method(string $method, array $allowed): void
     }
 }
 
+/**
+ * Eventos de Matchora. Si el proveedor falla devuelve [[], $error] para poder
+ * mostrar igualmente los eventos propios del panel.
+ */
+function provider_event_list(string $path, string $ttlKey): array
+{
+    try {
+        $data = provider($path, $ttlKey);
+        return [normalize_events(extract_list($data, 'events')), null];
+    } catch (Throwable $e) {
+        return [[], $e];
+    }
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = route_path();
 
@@ -80,15 +94,23 @@ try {
                 $params[$k] = (string)$_GET[$k];
             }
         }
-        $data = provider('schedule?' . http_build_query($params), 'schedule');
-        respond(['success' => true, 'server_time' => time(), 'date' => $date, 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
+        [$list, $err] = provider_event_list('schedule?' . http_build_query($params), 'schedule');
+        $manual = manual_events_for_date($date);
+        if ($err !== null && !$manual) {
+            throw $err;
+        }
+        respond(['success' => true, 'server_time' => time(), 'date' => $date, 'events' => attach_links(array_merge($manual, $list))]);
     }
 
     // ---- En vivo -------------------------------------------------------
     if ($path === 'live') {
         require_method($method, ['GET']);
-        $data = provider('live', 'live');
-        respond(['success' => true, 'server_time' => time(), 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
+        [$list, $err] = provider_event_list('live', 'live');
+        $manual = manual_events_live();
+        if ($err !== null && !$manual) {
+            throw $err;
+        }
+        respond(['success' => true, 'server_time' => time(), 'events' => attach_links(array_merge($manual, $list))]);
     }
 
     // ---- Canales -------------------------------------------------------
@@ -105,6 +127,13 @@ try {
     // ---- Detalle de evento ----------------------------------------------
     if (preg_match('#^events/([A-Za-z0-9_.-]{1,80})$#', $path, $m)) {
         require_method($method, ['GET']);
+        if (strncmp($m[1], 'manual-', 7) === 0) {
+            $mev = manual_event_by_key($m[1]);
+            if ($mev === null) {
+                respond(['success' => false, 'error' => 'Evento no disponible'], 404);
+            }
+            respond(['success' => true, 'event' => attach_links([$mev])[0]]);
+        }
         $data = provider('events/' . rawurlencode($m[1]), 'event');
         $ev = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
         if (is_excluded_event($ev)) {

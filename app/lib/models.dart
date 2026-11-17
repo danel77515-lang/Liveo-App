@@ -119,6 +119,9 @@ class LiveEvent {
     required this.embedUrl,
     this.minute,
     this.links = const <StreamSource>[],
+    this.liveLock = false,
+    this.stateLabel,
+    this.customTitle,
   });
 
   final String id;
@@ -135,7 +138,17 @@ class LiveEvent {
   /// Enlaces m3u8 propios (reproductor integrado de la app).
   final List<StreamSource> links;
 
-  String get title => '$home vs $away';
+  /// true = el estado se fijó a mano en el panel (evento propio): la app no
+  /// lo cambia por horario y confía en la marca `live` del servidor.
+  final bool liveLock;
+
+  /// "Finalizado", "Postergado" o "Cancelado" (eventos propios).
+  final String? stateLabel;
+
+  /// Título escrito a mano en el panel (solo eventos propios).
+  final String? customTitle;
+
+  String get title => customTitle ?? '$home vs $away';
 
   /// En vivo "de verdad", mirando la hora y no solo la marca del proveedor:
   /// - el proveedor lo marca en vivo pero su hora de inicio todavía no llegó
@@ -144,6 +157,8 @@ class LiveEvent {
   ///   -> pasa a en vivo solo, sin esperar al refresco;
   /// - sin hora de inicio se confía en el proveedor.
   bool get liveNow {
+    if (stateLabel != null) return false;
+    if (liveLock) return live;
     final k = kickoff;
     if (k == null) return live;
     final now = syncedNow();
@@ -189,6 +204,19 @@ class LiveEvent {
       }
     }
 
+    String? stateLabel;
+    final rawState = j['state_label'];
+    if (rawState is String && rawState.trim().isNotEmpty) {
+      stateLabel = rawState.trim();
+    }
+    String? customTitle;
+    final rawTitle = j['title'];
+    if (_truthy(j['manual']) &&
+        rawTitle is String &&
+        rawTitle.trim().isNotEmpty) {
+      customTitle = rawTitle.trim();
+    }
+
     return LiveEvent(
       id: '${j['id'] ?? ''}',
       league: _name(j['league'], 'Deporte'),
@@ -201,6 +229,9 @@ class LiveEvent {
       embedUrl: embed,
       minute: minute,
       links: links,
+      liveLock: _truthy(j['live_lock']),
+      stateLabel: stateLabel,
+      customTitle: customTitle,
     );
   }
 }

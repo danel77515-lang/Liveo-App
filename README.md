@@ -172,3 +172,16 @@ La API (`schedule`, `live`, `events/{id}`) agrega a cada evento el campo `links`
 ## Alcance de Matchora y Chromecast
 Matchora entrega `embed_url` para su reproductor embebido y no URLs directas de los streams, por lo que el Cast
 nativo solo podrá activarse para fuentes con media URL compatible. El botón actual informa esta limitación.
+
+
+## Eventos propios (panel de administración)
+
+En `http://IP/Liveo/admin/` → **Eventos propios** podés crear eventos a mano:
+deporte, competición, equipos, título (opcional), inicio y estado
+(Automático por horario, Programado, En vivo, Finalizado, Postergado, Cancelado).
+La finalización automática es inicio + 135 minutos; se cambia en **Configuración**.
+Cada evento admite señales (enlaces m3u8) igual que los de Matchora y se mezcla con
+ellos en `/api/live`, `/api/schedule` y `/api/events/manual-N`.
+
+Tras actualizar el backend, abrí el panel una vez (o `setup.php`) para que se cree la
+tabla `manual_events`.
