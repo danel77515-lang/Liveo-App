@@ -463,15 +463,35 @@ if ($fatal) {
         $onlyLive = !empty($_GET['live']);
         $q = trim((string)($_GET['q'] ?? ''));
         $events = [];
-        $listError = null;
-        try {
-            $data = $onlyLive
-                ? provider('live', 'live')
-                : provider('schedule?' . http_build_query(['date' => $date]), 'schedule');
-            $events = normalize_events(extract_list($data, 'events'));
-        } catch (Throwable $e) {
-            $listError = $e->getMessage();
+        $listErrors = [];
+        $feeds = $onlyLive
+            ? [['live', 'live']]
+            : [
+                ['schedule?' . http_build_query(['date' => $date]), 'schedule'],
+                ['schedule?' . http_build_query(['date' => date('Y-m-d', strtotime($date . ' +1 day'))]), 'schedule'],
+                ['live', 'live'],
+            ];
+        $uniqueEvents = [];
+        foreach ($feeds as [$feedPath, $ttlKey]) {
+            try {
+                $feed = provider($feedPath, $ttlKey);
+                foreach (normalize_events(extract_list($feed, 'events')) as $event) {
+                    $eventId = (string)($event['id'] ?? '');
+                    $eventKey = $eventId !== '' ? $eventId : implode('|', [
+                        (string)($event['home'] ?? ''),
+                        (string)($event['away'] ?? ''),
+                        (string)($event['kickoff'] ?? ''),
+                    ]);
+                    if ($eventKey !== '||') {
+                        $uniqueEvents[$eventKey] = $event;
+                    }
+                }
+            } catch (Throwable $e) {
+                $listErrors[] = $e->getMessage();
+            }
         }
+        $events = array_values($uniqueEvents);
+        $listError = $events ? null : ($listErrors ? implode(' · ', array_unique($listErrors)) : null);
         if ($q !== '') {
             $events = array_values(array_filter($events, function ($e) use ($q) {
                 return contains_ci((string)($e['home'] ?? '') . ' ' . (string)($e['away'] ?? '') . ' ' . (string)($e['league'] ?? ''), $q);
@@ -506,7 +526,8 @@ if ($fatal) {
           </form>
         </div>
         <div class="card">
-          <h2>Eventos de Matchora (<?= count($events) ?>)</h2>
+          <h2>Eventos disponibles (<?= count($events) ?>)</h2>
+          <p class="mut">Se combinan eventos en vivo, la fecha elegida y el día siguiente, igual que en la aplicación. Cricket y las competiciones no seleccionadas están excluidos.</p>
           <?php if ($listError): ?><p class="bad">No se pudo consultar a Matchora: <?= h($listError) ?></p><?php endif; ?>
           <?php if (!$listError && !$events): ?><p class="mut">No hay eventos para este filtro.</p><?php endif; ?>
           <?php foreach ($events as $e):
@@ -537,58 +558,68 @@ $view = (string)($_GET['v'] ?? 'home');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
+<link rel="icon" href="../assets/favicon.ico?v=1.0.14" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.14">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.14">
+<meta name="theme-color" content="#101722">
 <style>
-  :root { color-scheme: dark; --bg:#0e1116; --card:#151a22; --line:#242c38; --txt:#e8edf5; --mut:#8c97a8; --ok:#86d957; --bad:#ff6b6b; --warn:#f4c542; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--txt); }
-  main { max-width: 860px; margin: 0 auto; padding: 20px 14px 64px; }
-  header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
-  h1 { margin:0; font-size:20px; letter-spacing:3px; font-weight:900; }
-  h1 small { letter-spacing:0; font-weight:500; color:var(--mut); font-size:13px; margin-left:6px; }
-  h2 { margin:0 0 10px; font-size:16px; }
-  nav { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-  nav a, nav button { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font-size:13px; text-decoration:none; cursor:pointer; }
-  nav a.on { border-color:var(--ok); color:var(--ok); }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
-  .narrow { max-width:420px; margin:40px auto; }
-  .mut { color:var(--mut); font-size:13px; }
-  .ok { color:var(--ok); } .bad { color:var(--bad); }
-  code { background:#0e1116; border:1px solid var(--line); border-radius:6px; padding:2px 6px; word-break:break-all; font-size:12px; }
-  label { display:block; font-size:12px; color:var(--mut); margin:0 0 10px; }
-  input { display:block; width:100%; margin-top:4px; background:#0e1116; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:14px; }
-  input[type=checkbox] { display:inline-block; width:auto; margin:0 6px 0 0; }
-  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-  .filters { display:grid; grid-template-columns: 1fr 1.4fr auto auto; gap:10px; align-items:end; }
-  .filters .chk { margin:0 0 10px; color:var(--txt); white-space:nowrap; }
-  button { background:var(--ok); color:#0e1116; border:0; border-radius:8px; padding:9px 14px; font-weight:700; cursor:pointer; font-size:13px; }
-  button.alt { background:#2b3445; color:var(--txt); }
-  button.danger { background:#3a1d22; color:#ff9a9a; }
+  :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:radial-gradient(ellipse at 12% -10%,rgba(47,113,112,.18),transparent 38%),radial-gradient(ellipse at 100% 0%,rgba(54,83,130,.17),transparent 34%),var(--bg); color:var(--txt); }
+  main { width:min(1160px,100%); margin:0 auto; padding:28px 22px 72px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; padding:15px 18px; margin-bottom:24px; border:1px solid rgba(139,164,195,.16); border-radius:18px; background:rgba(17,27,41,.86); box-shadow:var(--shadow); backdrop-filter:blur(14px); }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .brand img { display:block; flex:0 0 48px; width:48px; height:48px; object-fit:contain; object-position:center; border-radius:12px; }
+  h1 { margin:0; font-size:19px; letter-spacing:3px; font-weight:900; line-height:1.2; }
+  h1 + small,.brand small { display:block; color:var(--mut); font-size:11px; letter-spacing:.3px; margin-top:4px; }
+  h2 { margin:0 0 12px; font-size:16px; letter-spacing:.1px; }
+  nav { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
+  nav a,nav button { background:#172438; color:#dce7f5; border:1px solid #2a3c54; border-radius:10px; padding:9px 13px; font-size:12px; text-decoration:none; cursor:pointer; transition:.18s ease; }
+  nav a:hover,nav button:hover { border-color:var(--accent); color:var(--accent); transform:translateY(-1px); }
+  nav a.on { background:rgba(112,223,176,.1); border-color:rgba(112,223,176,.55); color:var(--accent); }
+  .card { background:linear-gradient(145deg,rgba(22,34,53,.96),rgba(16,26,40,.96)); border:1px solid rgba(139,164,195,.17); border-radius:17px; padding:21px; margin-bottom:17px; box-shadow:var(--shadow); }
+  .narrow { max-width:440px; margin:54px auto; }
+  .mut { color:var(--mut); font-size:13px; line-height:1.6; }
+  .ok { color:var(--accent); } .bad { color:var(--bad); }
+  code { background:#0b1420; border:1px solid var(--line); border-radius:7px; padding:3px 7px; word-break:break-all; font-size:12px; }
+  label { display:block; font-size:12px; color:#a9b8cc; margin:0 0 12px; }
+  input { display:block; width:100%; margin-top:6px; background:#0a1421; color:var(--txt); border:1px solid #2b3c53; border-radius:10px; padding:11px 12px; font-size:14px; outline:none; transition:border-color .18s,box-shadow .18s; }
+  input:focus { border-color:var(--accent2); box-shadow:0 0 0 3px rgba(112,223,176,.12); }
+  input[type=checkbox] { display:inline-block; width:auto; margin:0 7px 0 0; accent-color:var(--accent2); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .filters { display:grid; grid-template-columns:1fr 1.4fr auto auto; gap:12px; align-items:end; }
+  .filters .chk { margin:0 0 12px; color:var(--txt); white-space:nowrap; }
+  button { background:linear-gradient(135deg,var(--accent),#8be7c1); color:#092018; border:0; border-radius:10px; padding:10px 15px; font-weight:800; cursor:pointer; font-size:12px; transition:filter .18s,transform .18s; }
+  button:hover { filter:brightness(1.06); transform:translateY(-1px); }
+  button.alt { background:#263850; color:#e3edf9; border:1px solid #344a66; }
+  button.danger { background:rgba(255,115,125,.12); color:#ff9aa2; border:1px solid rgba(255,115,125,.3); }
   .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  a.btn { display:inline-block; background:var(--ok); color:#0e1116; border-radius:8px; padding:9px 14px; font-weight:700; text-decoration:none; font-size:13px; }
-  a.link { color:var(--ok); text-decoration:none; }
-  .src { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
+  a.btn { display:inline-block; background:linear-gradient(135deg,var(--accent),#8be7c1); color:#092018; border-radius:10px; padding:10px 15px; font-weight:800; text-decoration:none; font-size:12px; }
+  a.link { color:var(--accent); text-decoration:none; }
+  .src { border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
   .src:first-of-type { border-top:0; margin-top:0; padding-top:0; }
-  .src.off { opacity:.6; }
-  .row { display:flex; gap:12px; align-items:center; padding:10px 4px; border-top:1px solid var(--line); text-decoration:none; color:var(--txt); }
+  .src.off { opacity:.58; }
+  .row { display:flex; gap:14px; align-items:center; padding:14px 10px; border-top:1px solid rgba(139,164,195,.12); text-decoration:none; color:var(--txt); border-radius:9px; transition:background .16s; }
   .row:first-of-type { border-top:0; }
-  .row:hover { background:#1a2029; }
-  .row .t { width:62px; color:var(--mut); font-size:13px; flex:none; }
+  .row:hover { background:rgba(111,144,180,.09); }
+  .row .t { width:78px; color:var(--mut); font-size:12px; flex:none; }
   .row .m { flex:1; min-width:0; }
-  .row .m b { font-weight:600; }
-  .row .m small { display:block; color:var(--mut); margin-top:2px; }
+  .row .m b { font-weight:700; }
+  .row .m small { display:block; color:var(--mut); margin-top:4px; font-size:11px; }
   .row .b { display:flex; gap:6px; flex:none; flex-wrap:wrap; justify-content:flex-end; }
-  .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--mut); }
-  .tag.ok { color:var(--ok); border-color:var(--ok); }
-  .tag.live { color:#fff; background:#d63a40; border-color:#d63a40; font-weight:700; }
-  .flash { border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:14px; border:1px solid var(--line); background:var(--card); }
-  .flash.ok { border-color:var(--ok); } .flash.bad { border-color:var(--bad); }
-  @media (max-width: 600px) { .grid, .filters { grid-template-columns: 1fr; } .row { flex-wrap:wrap; } }
+  .tag { display:inline-block; font-size:10px; padding:4px 9px; border-radius:999px; border:1px solid #34465d; color:#aebdd0; background:rgba(7,14,23,.25); }
+  .tag.ok { color:var(--accent); border-color:rgba(112,223,176,.45); background:rgba(112,223,176,.07); }
+  .tag.live { color:#fff; background:#d94b59; border-color:#d94b59; font-weight:800; }
+  .flash { border-radius:12px; padding:12px 15px; margin-bottom:13px; font-size:13px; border:1px solid var(--line); background:var(--panel); }
+  .flash.ok { border-color:rgba(112,223,176,.45); } .flash.bad { border-color:rgba(255,115,125,.5); }
+  @media(max-width:760px) { main{padding:16px 12px 48px} header{padding:13px} .filters{grid-template-columns:1fr 1fr} }
+  @media(max-width:540px) { .grid,.filters{grid-template-columns:1fr} .row{flex-wrap:wrap;gap:7px} .row .t{width:auto;min-width:65px} .row .b{width:100%;justify-content:flex-start;padding-left:72px} }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>LIVEO<small>Administración · v<?= h(LIVEO_VERSION) ?></small></h1>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.14" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
       <a href="?v=home" class="<?= $view !== 'linked' ? 'on' : '' ?>">Eventos</a>

@@ -63,6 +63,16 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
 
+## Cambios 1.0.11 (backend)
+- Rediseño visual del backend y del panel de administración: interfaz oscura refinada, mejor jerarquía visual,
+  tarjetas, navegación, formularios y adaptación a móviles.
+- El panel ahora combina **eventos en vivo + agenda de la fecha seleccionada + agenda del día siguiente**,
+  igual que la app, y elimina duplicados por ID. Así aparecen también los eventos que antes solo se veían en la app.
+- Cricket queda excluido de la agenda, eventos en vivo y canales de la API. También se limpian los enlaces
+  guardados cuya liga está identificada como Cricket.
+- El favicon y el icono de acceso del backend, administración e instalación usan el mismo logo de Liveo que la APK.
+- No requiere modificar ni recompilar la aplicación Android; reemplaza el backend en XAMPP.
+
 ## Cambios 1.0.10
 - Workflow: el APK ahora se publica en una **Release** del repositorio (`v<versión>`, archivo `Liveo-<versión>.apk`),
   que no cuenta en el cupo de artefactos de Actions. Descárgalo en la pestaña **Releases** (columna derecha del repo).

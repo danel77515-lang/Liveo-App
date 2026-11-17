@@ -56,6 +56,13 @@ String? minuteLabel(String? m) {
   return int.tryParse(t) != null ? "$t'" : t;
 }
 
+/// Diferencia entre el reloj del servidor y el del teléfono (el servidor manda
+/// `server_time`). Así las cuentas regresivas no dependen de la hora del celu.
+Duration serverOffset = Duration.zero;
+
+/// Hora actual corregida con el reloj del servidor.
+DateTime syncedNow() => DateTime.now().add(serverOffset);
+
 /// Enlace m3u8 agregado desde el panel de administración.
 class StreamSource {
   const StreamSource({
@@ -195,6 +202,12 @@ class LiveoApi {
     final data = jsonDecode(utf8.decode(r.bodyBytes));
     if (data is! Map) {
       throw const FormatException('Respuesta inesperada del servidor');
+    }
+    final st = data['server_time'];
+    if (st is num && st > 0) {
+      final server =
+          DateTime.fromMillisecondsSinceEpoch(st.toInt() * 1000, isUtc: true);
+      serverOffset = server.difference(DateTime.now().toUtc());
     }
     final list = data['events'];
     if (list is! List) return const <LiveEvent>[];

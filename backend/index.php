@@ -53,30 +53,22 @@ if (($_GET['check'] ?? '') === 'provider') {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Backend</title>
+<link rel="icon" href="assets/favicon.ico?v=1.0.14" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.14">
+<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.14">
+<meta name="theme-color" content="#101722">
 <style>
-  :root { color-scheme: dark; --bg:#0b1422; --card:#101a2a; --line:#1f2d45; --txt:#e8eef9; --mut:#92a2bd; --ok:#86d957; --bad:#ff6b6b; --warn:#f4c542; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--txt); }
-  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
-  h1 { margin:0 0 4px; letter-spacing:3px; font-weight:900; }
-  p.sub { margin:0 0 24px; color:var(--mut); }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:16px; }
-  .card h2 { margin:0 0 12px; font-size:16px; }
-  code { background:#0b1422; border:1px solid var(--line); border-radius:6px; padding:2px 6px; word-break:break-all; }
-  table { width:100%; border-collapse:collapse; }
-  td { padding:8px 4px; border-top:1px solid var(--line); vertical-align:top; font-size:14px; }
-  tr:first-child td { border-top:0; }
-  .ok { color:var(--ok); } .bad { color:var(--bad); } .unk { color:var(--warn); }
-  .mut { color:var(--mut); font-size:13px; }
-  a.btn, button { display:inline-block; background:var(--ok); color:#0b1422; border:0; border-radius:10px; padding:10px 16px; font-weight:700; text-decoration:none; cursor:pointer; font-size:14px; }
-  a.link { color:var(--ok); }
-  ul { margin:0; padding-left:18px; line-height:1.9; }
+  :root { color-scheme:dark; --bg:#0a1019; --card:#111b29; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --ok:#70dfb0; --bad:#ff737d; }
+  *{box-sizing:border-box} body{margin:0;min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(ellipse at 12% -10%,rgba(47,113,112,.18),transparent 38%),radial-gradient(ellipse at 100% 0%,rgba(54,83,130,.17),transparent 34%),var(--bg);color:var(--txt)}
+  main{max-width:900px;margin:0 auto;padding:38px 18px 70px}.brand{display:flex;align-items:center;gap:14px;margin-bottom:24px}.brand img{display:block;flex:0 0 54px;width:54px;height:54px;border-radius:13px;object-fit:contain;object-position:center}h1{margin:0;letter-spacing:3px;font-weight:900}.sub{margin:5px 0 0;color:var(--mut);font-size:13px}
+  .card{background:linear-gradient(145deg,rgba(22,34,53,.96),rgba(16,26,40,.96));border:1px solid rgba(139,164,195,.17);border-radius:17px;padding:21px;margin-bottom:16px;box-shadow:0 18px 48px rgba(0,0,0,.2)}.card h2{margin:0 0 13px;font-size:16px}
+  code{background:#0b1420;border:1px solid var(--line);border-radius:7px;padding:3px 7px;word-break:break-all}table{width:100%;border-collapse:collapse}td{padding:11px 5px;border-top:1px solid rgba(139,164,195,.12);vertical-align:top;font-size:13px}tr:first-child td{border-top:0}.ok{color:var(--ok)}.bad{color:var(--bad)}.unk{color:#f4c86a}.mut{color:var(--mut);font-size:12px;line-height:1.6}
+  a.btn,button{display:inline-block;background:linear-gradient(135deg,#70dfb0,#8be7c1);color:#092018;border:0;border-radius:10px;padding:10px 16px;font-weight:800;text-decoration:none;cursor:pointer;font-size:12px;margin-right:5px}a.link{color:var(--ok)}ul{margin:0;padding-left:18px;line-height:2}
 </style>
 </head>
 <body>
 <main>
-  <h1>LIVEO</h1>
-  <p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Proveedor: Matchora</p>
+  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.14" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Proveedor: Matchora</p></div></div>
 
   <div class="card">
     <h2>URL para la app Android</h2>

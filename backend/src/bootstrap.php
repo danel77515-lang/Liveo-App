@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 if (!defined('LIVEO_VERSION')) {
-    define('LIVEO_VERSION', '1.0.10');
+    define('LIVEO_VERSION', '1.0.14');
 }
 
 /** Configuración con valores por defecto aptos para XAMPP. */
@@ -381,12 +381,91 @@ function normalize_event(array $e): array
     return $out;
 }
 
+/** Excluye deportes y competiciones no deseadas del catálogo de Liveo. */
+function is_excluded_event(array $event): bool
+{
+    $fields = ['sport', 'sports', 'sport_name', 'sportName', 'category', 'category_name', 'categoryName', 'discipline', 'league', 'competition', 'tournament'];
+    $values = [];
+    foreach ($fields as $field) {
+        if (!array_key_exists($field, $event)) {
+            continue;
+        }
+        $value = $event[$field];
+        if (is_array($value)) {
+            $value = pick_name($value);
+        }
+        if (is_scalar($value)) {
+            $values[] = (string)$value;
+        }
+    }
+    $haystack = strtolower(implode(' | ', $values));
+    $haystack = preg_replace('/[^a-z0-9]+/', ' ', $haystack) ?? $haystack;
+    $blocked = [
+        'cricket',
+        'nba g league', 'g league',
+        'ncaa division', 'ncaa',
+        'wwe', 'world wrestling entertainment',
+        'pdc darts', 'darts',
+        'nhl', 'national hockey league',
+        'aruban division di honor', 'division di honor',
+        'guyana gff super league', 'gff super league',
+        'american ahl', 'ahl', 'american hockey league',
+        'japanese b1 league', 'b1 league',
+        'dr congo ligue 1', 'congo ligue 1',
+        'cameroonian elite one', 'elite one',
+        'mali premiere division', 'premiere division mali',
+        'russian vhl', 'vhl', 'russian khl', 'khl',
+        'swedish hockey allsvenskan', 'hockey allsvenskan', 'allsvenskan',
+        'australian wnbl', 'wnbl',
+        'champions hockey league',
+        'finnish mestis', 'mestis',
+        'german del 2', 'del 2', 'del2',
+        'swiss league',
+        'danish metal ligaen', 'metal ligaen',
+        'scottish lowland league east', 'lowland league east',
+        'fighting',
+        'mexican pacific league', 'pacific league',
+        'japanese we league', 'we league',
+        'one championship', 'one',
+        'australian nbl', 'nbl',
+        'asean club championship',
+        'slovenia cup',
+        'indian football league',
+        'russian vtb united league', 'vtb united league',
+        'canadian ohl', 'ohl', 'ontario hockey league',
+        'american echl', 'echl',
+        'finnish liiga', 'liiga',
+    ];
+    foreach ($blocked as $name) {
+        $needle = preg_replace('/[^a-z0-9]+/', ' ', strtolower($name)) ?? strtolower($name);
+        if ($needle === 'one') {
+            if (preg_match('/\bone\b/', $haystack) === 1) {
+                return true;
+            }
+            continue;
+        }
+        if ($needle !== '' && strpos($haystack, $needle) !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Compatibilidad con llamadas antiguas: ahora aplica toda la lista de exclusión. */
+function is_cricket_event(array $event): bool
+{
+    return is_excluded_event($event);
+}
+
 function normalize_events(array $list): array
 {
     $out = [];
     foreach ($list as $e) {
-        if (is_array($e)) {
-            $out[] = normalize_event($e);
+        if (is_array($e) && !is_excluded_event($e)) {
+            $normalized = normalize_event($e);
+            if (!is_excluded_event($normalized)) {
+                $out[] = $normalized;
+            }
         }
     }
     return $out;

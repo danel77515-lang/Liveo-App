@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' show FontFeature;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
@@ -17,7 +18,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.10';
+const String liveoVersion = '1.0.11';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -635,11 +636,17 @@ class _LiveoAppState extends State<LiveoApp> {
   }
 }
 
-/// Abre el reproductor del evento: primero el propio (enlaces m3u8) y, si no
-/// hay, el de Matchora dentro de la app.
-void openEvent(BuildContext context, LiveEvent e) {
+/// Abre el reproductor del evento según el ajuste "Reproductor":
+/// integrado (enlaces m3u8 propios, PiP y Chromecast) o de tercero (Matchora).
+/// Si el elegido no tiene señal para este evento, usa el otro como respaldo.
+Future<void> openEvent(BuildContext context, LiveEvent e) async {
+  final p = await SharedPreferences.getInstance();
+  if (!context.mounted) return;
+  final third = (p.getString('playerMode') ?? 'integrated') == 'third';
   final web = e.embedUrl;
-  if (e.links.isNotEmpty) {
+  final hasOwn = e.links.isNotEmpty;
+
+  void openOwn() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => LivePlayerPage(
@@ -654,15 +661,22 @@ void openEvent(BuildContext context, LiveEvent e) {
         ),
       ),
     );
-    return;
   }
-  if (web != null) {
+
+  void openThird() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => WebPlayerPage(url: web, title: e.title),
+        builder: (_) => WebPlayerPage(url: web!, title: e.title),
       ),
     );
-    return;
+  }
+
+  if (third) {
+    if (web != null) return openThird();
+    if (hasOwn) return openOwn();
+  } else {
+    if (hasOwn) return openOwn();
+    if (web != null) return openThird();
   }
   ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(content: Text('Este evento todavía no tiene señal.')),
@@ -1076,6 +1090,15 @@ class _FavButton extends StatelessWidget {
   }
 }
 
+/// "HH:MM:SS"
+String _hms(Duration d) {
+  final t = d.isNegative ? Duration.zero : d;
+  return '${_p2(t.inHours)}:${_p2(t.inMinutes.remainder(60))}:'
+      '${_p2(t.inSeconds.remainder(60))}';
+}
+
+/// Cuenta regresiva: "Empieza en 50:48". Al llegar a cero la tarjeta pasa sola
+/// a "En vivo" (sin esperar a que el servidor refresque la lista).
 class _Countdown extends StatelessWidget {
   const _Countdown({required this.kickoff});
 
@@ -1086,16 +1109,16 @@ class _Countdown extends StatelessWidget {
     return ValueListenableBuilder<int>(
       valueListenable: _clock,
       builder: (context, tick, child) {
-        final d = kickoff.difference(DateTime.now());
+        final d = kickoff.difference(syncedNow());
         String t;
-        if (d.inSeconds <= 0) {
-          t = 'Por comenzar';
-        } else if (d.inDays >= 1) {
+        if (d.inDays >= 1) {
           t = 'Empieza en ${d.inDays} d ${d.inHours.remainder(24)} h';
         } else {
-          final h = d.inHours;
-          final m = d.inMinutes.remainder(60);
-          final s = d.inSeconds.remainder(60);
+          // Redondea hacia arriba para que el último segundo sea 00:01.
+          final secs = (d.inMilliseconds / 1000).ceil();
+          final h = secs ~/ 3600;
+          final m = (secs % 3600) ~/ 60;
+          final s = secs % 60;
           t = 'Empieza en ${h > 0 ? '$h:' : ''}${_p2(m)}:${_p2(s)}';
         }
         return Text(
@@ -1109,6 +1132,95 @@ class _Countdown extends StatelessWidget {
   }
 }
 
+/// Ícono de transmisión que late (ondas rojas), como en la referencia.
+class _PulsingLive extends StatefulWidget {
+  const _PulsingLive();
+
+  @override
+  State<_PulsingLive> createState() => _PulsingLiveState();
+}
+
+class _PulsingLiveState extends State<_PulsingLive>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final v = Curves.easeInOut.transform(_c.value);
+        return Opacity(
+          opacity: 0.45 + 0.55 * v,
+          child: Transform.scale(scale: 0.9 + 0.2 * v, child: child),
+        );
+      },
+      child: const Icon(Icons.sensors_rounded, size: 24, color: Pal.live),
+    );
+  }
+}
+
+/// Bloque "en vivo": ícono animado, "En vivo" y cronómetro que sube desde el
+/// inicio del partido (HH:MM:SS).
+class _LiveBlock extends StatelessWidget {
+  const _LiveBlock({required this.event});
+
+  final LiveEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = event.kickoff;
+    final m = minuteLabel(event.minute);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _PulsingLive(),
+        const SizedBox(height: 2),
+        const Text(
+          'En vivo',
+          style: TextStyle(
+            color: Pal.live,
+            fontWeight: FontWeight.w600,
+            fontSize: 12.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (k != null)
+          ValueListenableBuilder<int>(
+            valueListenable: _clock,
+            builder: (context, tick, child) => Text(
+              _hms(syncedNow().difference(k)),
+              maxLines: 1,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          )
+        else if (m != null)
+          Text(
+            m,
+            style: const TextStyle(
+              color: Pal.live,
+              fontWeight: FontWeight.w600,
+              fontSize: 12.5,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _CenterInfo extends StatelessWidget {
   const _CenterInfo({required this.event});
 
@@ -1117,43 +1229,7 @@ class _CenterInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = event.kickoff;
-    if (event.live) {
-      final m = minuteLabel(event.minute);
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.circle, size: 8, color: Pal.live),
-              SizedBox(width: 5),
-              Text(
-                'EN VIVO',
-                style: TextStyle(
-                  color: Pal.live,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          if (m != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                m,
-                style: const TextStyle(
-                  color: Pal.live,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12.5,
-                ),
-              ),
-            ),
-        ],
-      );
-    }
+    if (event.live) return _LiveBlock(event: event);
     if (k == null) {
       return Text(
         event.status,
@@ -1163,24 +1239,32 @@ class _CenterInfo extends StatelessWidget {
         style: TextStyle(fontSize: 12, color: _muted(context)),
       );
     }
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          fmtHm(k),
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-        Text(
-          _dayLabel(k),
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: Pal.accent,
+    // Cuando pasa la hora de inicio, el reloj de 1 s lo convierte en "en vivo".
+    return ValueListenableBuilder<int>(
+      valueListenable: _clock,
+      builder: (context, tick, child) {
+        if (!k.isAfter(syncedNow())) return _LiveBlock(event: event);
+        return child!;
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            fmtHm(k),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
-        ),
-        const SizedBox(height: 4),
-        _Countdown(kickoff: k),
-      ],
+          Text(
+            _dayLabel(k),
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: Pal.accent,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _Countdown(kickoff: k),
+        ],
+      ),
     );
   }
 }
@@ -2598,6 +2682,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _pip = true;
+  bool _thirdParty = false;
 
   @override
   void initState() {
@@ -2608,7 +2693,50 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
-    setState(() => _pip = p.getBool('pipOnLeave') ?? true);
+    setState(() {
+      _pip = p.getBool('pipOnLeave') ?? true;
+      _thirdParty = (p.getString('playerMode') ?? 'integrated') == 'third';
+    });
+  }
+
+  Future<void> _pickPlayer() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        Widget opt(String value, String title, String sub) {
+          final selected = (value == 'third') == _thirdParty;
+          return ListTile(
+            title: Text(title),
+            subtitle: Text(sub),
+            trailing: selected
+                ? const Icon(Icons.check_circle_rounded, color: Pal.accent)
+                : const Icon(Icons.circle_outlined),
+            onTap: () => Navigator.of(ctx).pop(value),
+          );
+        }
+
+        return SimpleDialog(
+          title: const Text('Reproductor'),
+          children: [
+            opt(
+              'integrated',
+              'Integrado',
+              'Reproductor propio de Liveo (m3u8), con PiP y Chromecast',
+            ),
+            opt(
+              'third',
+              'De tercero',
+              'Reproductor web de Matchora dentro de la app',
+            ),
+          ],
+        );
+      },
+    );
+    if (choice == null) return;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('playerMode', choice);
+    if (!mounted) return;
+    setState(() => _thirdParty = choice == 'third');
   }
 
   Future<void> _setPip(bool v) async {
@@ -2668,15 +2796,11 @@ class _SettingsPageState extends State<SettingsPage> {
           trailing: Switch(value: _pip, onChanged: _setPip),
           onTap: () => _setPip(!_pip),
         ),
-        const _SettingsCard(
-          icon: Icons.dns_outlined,
-          title: 'Servidor',
-          subtitle: apiBase,
-        ),
-        const _SettingsCard(
+        _SettingsCard(
           icon: Icons.play_circle_outline_rounded,
           title: 'Reproductor',
-          subtitle: 'Propio (m3u8) con Chromecast. Matchora queda de respaldo.',
+          subtitle: _thirdParty ? 'De tercero (Matchora)' : 'Integrado',
+          onTap: _pickPlayer,
         ),
         const _Label('App'),
         _SettingsCard(

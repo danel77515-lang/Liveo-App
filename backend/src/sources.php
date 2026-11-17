@@ -37,6 +37,24 @@ function ensure_sources_schema(PDO $pdo): void
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         KEY idx_event (event_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    // Elimina fuentes guardadas de Cricket y de las competiciones excluidas.
+    $blockedLike = [
+        '%cricket%', '%nba g league%', '%g league%', '%ncaa%', '%wwe%', '%pdc darts%', '%darts%',
+        '%nhl%', '%division di honor%', '%gff super league%', '%american ahl%', '%ahl%',
+        '%b1 league%', '%congo ligue 1%', '%elite one%', '%mali%premiere division%',
+        '%russian vhl%', '%vhl%', '%russian khl%', '%khl%', '%hockey allsvenskan%',
+        '%allsvenskan%', '%wnbl%', '%champions hockey league%',
+        '%finnish mestis%', '%mestis%', '%german del 2%', '%del2%', '%swiss league%',
+        '%danish metal ligaen%', '%metal ligaen%', '%scottish lowland league east%',
+        '%lowland league east%', '%fighting%', '%mexican pacific league%',
+        '%japanese we league%', '%we league%', 'one', '%one championship%',
+        '%australian nbl%', '%nbl%', '%asean club championship%', '%slovenia cup%',
+        '%indian football league%', '%russian vtb united league%', '%vtb united league%',
+        '%canadian ohl%', '%ontario hockey league%', '%ohl%', '%american echl%', '%echl%', '%finnish liiga%', '%liiga%'
+    ];
+    $where = implode(' OR ', array_fill(0, count($blockedLike), "LOWER(COALESCE(league, '')) LIKE ?"));
+    $cleanup = $pdo->prepare('DELETE FROM event_sources WHERE ' . $where);
+    $cleanup->execute($blockedLike);
     $done = true;
 }
 

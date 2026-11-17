@@ -81,21 +81,25 @@ try {
             }
         }
         $data = provider('schedule?' . http_build_query($params), 'schedule');
-        respond(['success' => true, 'date' => $date, 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
+        respond(['success' => true, 'server_time' => time(), 'date' => $date, 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
     }
 
     // ---- En vivo -------------------------------------------------------
     if ($path === 'live') {
         require_method($method, ['GET']);
         $data = provider('live', 'live');
-        respond(['success' => true, 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
+        respond(['success' => true, 'server_time' => time(), 'events' => attach_links(normalize_events(extract_list($data, 'events')))]);
     }
 
     // ---- Canales -------------------------------------------------------
     if ($path === 'channels') {
         require_method($method, ['GET']);
         $data = provider('channels', 'channels');
-        respond(['success' => true, 'channels' => extract_list($data, 'channels')]);
+        $channels = extract_list($data, 'channels');
+        $channels = array_values(array_filter($channels, function ($channel) {
+            return !is_array($channel) || !is_cricket_event($channel);
+        }));
+        respond(['success' => true, 'channels' => $channels]);
     }
 
     // ---- Detalle de evento ----------------------------------------------
@@ -103,6 +107,9 @@ try {
         require_method($method, ['GET']);
         $data = provider('events/' . rawurlencode($m[1]), 'event');
         $ev = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
+        if (is_excluded_event($ev)) {
+            respond(['success' => false, 'error' => 'Evento no disponible'], 404);
+        }
         respond(['success' => true, 'event' => attach_links([normalize_event($ev)])[0]]);
     }
 
