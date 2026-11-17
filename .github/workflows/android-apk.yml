@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # necesario para publicar el APK en una Release
 
 jobs:
   build:
@@ -191,7 +191,25 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL"
 
+      # El APK se publica en una Release (no cuenta en el cupo de artefactos de Actions).
+      - name: Publish APK in a Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(grep '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          APK="$RUNNER_TEMP/Liveo-$VER.apk"
+          cp "$GITHUB_WORKSPACE/app/build/app/outputs/flutter-apk/app-release.apk" "$APK"
+          if gh release view "v$VER" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "v$VER" "$APK" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "v$VER" "$APK" --repo "$GITHUB_REPOSITORY" \
+              --title "Liveo $VER" --notes "APK de Liveo $VER (compilado en GitHub Actions)." \
+              --target "$GITHUB_SHA"
+          fi
+
+      # Copia como artefacto: si el cupo de GitHub está lleno, no hace fallar la compilación.
       - name: Upload APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: Liveo-Android-APK
