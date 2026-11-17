@@ -546,9 +546,7 @@ if ($fatal) {
             $ev = manual_row_to_event($manualRow, manual_duration_minutes($pdo), time());
         } else {
             try {
-                $data = provider('events/' . rawurlencode($eid), 'event');
-                $raw = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
-                $ev = normalize_event($raw);
+                $ev = rockylive_event_by_id($eid);
             } catch (Throwable $e) {
                 $ev = null;
             }
@@ -571,7 +569,7 @@ if ($fatal) {
         ?>
         <p><?php if ($manualRow): ?><a class="link" href="?v=manual">← Volver a los eventos propios</a><?php else: ?><a class="link" href="?v=home&d=<?= h(rawurlencode($date)) ?>">← Volver a los eventos</a><?php endif; ?></p>
         <div class="card">
-          <h2><?= h($home !== '' ? $home : 'Evento') ?> <span class="mut">vs</span> <?= h($away) ?></h2>
+          <h2><?= h($home !== '' ? $home : 'Evento') ?><?php if ($away !== ''): ?> <span class="mut">vs</span> <?= h($away) ?><?php endif; ?></h2>
           <p class="mut"><?= h($league) ?> · <?= h(fmt_ts($kick)) ?>
             <?php if ($isLive): ?> · <span class="tag live">EN VIVO</span><?php endif; ?>
             · ID <code><?= h($eid) ?></code></p>
@@ -579,8 +577,8 @@ if ($fatal) {
             <p class="mut">Evento propio · estado actual: <b><?= h((string)($ev['status'] ?? '')) ?></b><?= (int)$manualRow['active'] === 1 ? '' : ' · <span class="tag">Oculto en la app</span>' ?>.
               Las señales se agregan abajo y la app las usa igual que en cualquier otro evento.</p>
           <?php else: ?>
-          <p class="mut">Reproductor de Matchora: <?= $hasEmbed ? 'disponible (la app lo usa si el evento no tiene enlaces propios)' : 'sin señal en Matchora' ?>.
-            <?php if ($ev === null): ?><br>No se pudo consultar a Matchora; se muestran los datos guardados.<?php endif; ?></p>
+          <p class="mut">Reproductor de RockyLive: <?= $hasEmbed ? 'disponible (la app lo usa si el evento no tiene enlaces propios)' : 'sin señal en RockyLive' ?>.
+            <?php if ($ev === null): ?><br>No se encontró el evento en RockyLive; se muestran los datos guardados.<?php endif; ?></p>
           <?php endif; ?>
         </div>
         <?php
@@ -701,7 +699,7 @@ if ($fatal) {
             <h2 style="margin:0">Eventos propios (<?= count($rows) ?>)</h2>
             <a class="btn" href="?v=manual_new">+ Nuevo evento</a>
           </div>
-          <p class="mut">Eventos que creas tú. Se mezclan con los de Matchora en la app y admiten enlaces como cualquier otro.</p>
+          <p class="mut">Eventos que creas tú. Se mezclan con los de RockyLive en la app y admiten enlaces como cualquier otro.</p>
           <?php if (!$rows): ?><p class="mut">Todavía no creaste ningún evento.</p><?php endif; ?>
           <?php foreach ($rows as $r):
               $e = manual_row_to_event($r, $durMin, $nowTs);
@@ -753,39 +751,25 @@ if ($fatal) {
         </div>
         <?php
     } else {
-        // ---- Eventos de Matchora -----------------------------------------------
+        // ---- Eventos de RockyLive -----------------------------------------------
         $onlyLive = !empty($_GET['live']);
         $q = trim((string)($_GET['q'] ?? ''));
         $events = [];
-        $listErrors = [];
-        $feeds = $onlyLive
-            ? [['live', 'live']]
-            : [
-                ['schedule?' . http_build_query(['date' => $date]), 'schedule'],
-                ['schedule?' . http_build_query(['date' => date('Y-m-d', strtotime($date . ' +1 day'))]), 'schedule'],
-                ['live', 'live'],
-            ];
-        $uniqueEvents = [];
-        foreach ($feeds as [$feedPath, $ttlKey]) {
-            try {
-                $feed = provider($feedPath, $ttlKey);
-                foreach (normalize_events(extract_list($feed, 'events')) as $event) {
-                    $eventId = (string)($event['id'] ?? '');
-                    $eventKey = $eventId !== '' ? $eventId : implode('|', [
-                        (string)($event['home'] ?? ''),
-                        (string)($event['away'] ?? ''),
-                        (string)($event['kickoff'] ?? ''),
-                    ]);
-                    if ($eventKey !== '||') {
-                        $uniqueEvents[$eventKey] = $event;
-                    }
+        $listError = null;
+        try {
+            $tzAdmin = new DateTimeZone((string)liveo_config()['timezone']);
+            $dayFrom = (new DateTimeImmutable($date . ' 00:00:00', $tzAdmin))->getTimestamp();
+            $dayTo = (new DateTimeImmutable($date . ' 00:00:00', $tzAdmin))->modify('+2 days')->getTimestamp();
+            foreach (rockylive_events() as $event) {
+                $k = (int)($event['kickoff'] ?? 0);
+                $inRange = $onlyLive ? !empty($event['live']) : (!empty($event['live']) || ($k >= $dayFrom && $k < $dayTo));
+                if ($inRange) {
+                    $events[] = $event;
                 }
-            } catch (Throwable $e) {
-                $listErrors[] = $e->getMessage();
             }
+        } catch (Throwable $e) {
+            $listError = $e->getMessage();
         }
-        $events = array_values($uniqueEvents);
-        $listError = $events ? null : ($listErrors ? implode(' · ', array_unique($listErrors)) : null);
         if ($q !== '') {
             $events = array_values(array_filter($events, function ($e) use ($q) {
                 return contains_ci((string)($e['home'] ?? '') . ' ' . (string)($e['away'] ?? '') . ' ' . (string)($e['league'] ?? ''), $q);
@@ -821,8 +805,8 @@ if ($fatal) {
         </div>
         <div class="card">
           <h2>Eventos disponibles (<?= count($events) ?>)</h2>
-          <p class="mut">Se combinan eventos en vivo, la fecha elegida y el día siguiente, igual que en la aplicación. Cricket y las competiciones no seleccionadas están excluidos.</p>
-          <?php if ($listError): ?><p class="bad">No se pudo consultar a Matchora: <?= h($listError) ?></p><?php endif; ?>
+          <p class="mut">Se combinan eventos en vivo, la fecha elegida y el día siguiente, igual que en la aplicación. Quedan excluidos los canales 24/7, darts, WWE, College Basketball, NBL, Allsvenskan, NHL y el resto de competiciones no deseadas.</p>
+          <?php if ($listError): ?><p class="bad">No se pudo consultar a RockyLive: <?= h($listError) ?></p><?php endif; ?>
           <?php if (!$listError && !$events): ?><p class="mut">No hay eventos para este filtro.</p><?php endif; ?>
           <?php foreach ($events as $e):
               $id = (string)($e['id'] ?? '');
@@ -830,10 +814,10 @@ if ($fatal) {
               $c = $counts[$id] ?? [0, 0]; ?>
             <a class="row" href="?v=event&id=<?= h(rawurlencode($id)) ?>&d=<?= h(rawurlencode($date)) ?>">
               <span class="t"><?= !empty($e['live']) ? '<span class="tag live">VIVO</span>' : h(fmt_ts($e['kickoff'] ?? 0)) ?></span>
-              <span class="m"><b><?= h($e['home'] ?? '') ?></b> vs <b><?= h($e['away'] ?? '') ?></b><small><?= h($e['league'] ?? '') ?></small></span>
+              <span class="m"><b><?= h($e['home'] ?? '') ?></b><?php if (($e['away'] ?? '') !== ''): ?> vs <b><?= h($e['away']) ?></b><?php endif; ?><small><?= h($e['league'] ?? '') ?></small></span>
               <span class="b">
                 <?php if ($c[0] > 0): ?><span class="tag ok"><?= $c[1] ?>/<?= $c[0] ?> enlaces</span><?php endif; ?>
-                <?php if (!empty($e['embed_url'])): ?><span class="tag">Matchora</span><?php endif; ?>
+                <?php if (!empty($e['embed_url'])): ?><span class="tag">RockyLive</span><?php endif; ?>
               </span>
             </a>
           <?php endforeach; ?>
@@ -852,9 +836,9 @@ $view = (string)($_GET['v'] ?? 'home');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.15" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.15">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.15">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.16" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.16">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.16">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -917,7 +901,7 @@ $view = (string)($_GET['v'] ?? 'home');
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.15" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.16" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
       <a href="?v=home" class="<?= !in_array($view, ['linked', 'manual', 'manual_new', 'config'], true) ? 'on' : '' ?>">Eventos</a>

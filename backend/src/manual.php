@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Eventos propios de Liveo: se crean a mano desde el panel de administración
  * (deporte, competición, equipos, título, inicio y estado) y se mezclan con los
- * de Matchora en /api/live, /api/schedule y /api/events/{id}.
+ * de RockyLive en /api/live, /api/schedule y /api/events/{id}.
  *
  * Su id público es "manual-<n>", así que las señales (enlaces) se agregan con
  * el mismo mecanismo que los demás eventos.
@@ -133,7 +133,7 @@ function manual_events_between(int $from, int $to): array
         }
         return $out;
     } catch (Throwable $e) {
-        // La tabla aún no existe: la API sigue funcionando solo con Matchora.
+        // La tabla aún no existe: la API sigue funcionando solo con RockyLive.
         return [];
     }
 }

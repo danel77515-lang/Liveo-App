@@ -18,7 +18,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.13';
+const String liveoVersion = '1.0.16';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -637,7 +637,7 @@ class _LiveoAppState extends State<LiveoApp> {
 }
 
 /// Abre el reproductor del evento según el ajuste "Reproductor":
-/// integrado (enlaces m3u8 propios, PiP y Chromecast) o de tercero (Matchora).
+/// integrado (enlaces m3u8 propios, PiP y Chromecast) o de tercero (RockyLive).
 /// Si el elegido no tiene señal para este evento, usa el otro como respaldo.
 Future<void> openEvent(BuildContext context, LiveEvent e) async {
   final p = await SharedPreferences.getInstance();
@@ -1342,6 +1342,22 @@ class _EventCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
+                if (event.away.isEmpty)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _Hl(
+                          event.home,
+                          terms,
+                          align: TextAlign.center,
+                          maxLines: 2,
+                          style: teamStyle,
+                        ),
+                      ),
+                      SizedBox(width: 108, child: _CenterInfo(event: event)),
+                    ],
+                  )
+                else
                 Row(
                   children: [
                     Expanded(
@@ -2425,26 +2441,14 @@ class _SearchPageState extends State<SearchPage> {
 }
 
 // ---------------------------------------------------------------------------
-// Reproductor de Matchora (respaldo): su embed dentro de un iframe, en horizontal
+// Reproductor de RockyLive (respaldo): su embed dentro de un iframe, en horizontal
 // ---------------------------------------------------------------------------
 
 /// Página mínima que incrusta el reproductor en un iframe, como indica la
-/// documentación de Matchora (https://matchora.to/developers). Incluye la
-/// selección automática de dominio de respaldo para los países donde algún
-/// dominio está bloqueado. No se oculta ni se tapa la publicidad del embed.
+/// documentación de RockyLive (https://rockylive.st/api/). No se oculta ni se
+/// tapa la publicidad del reproductor.
 String _playerHtml(String embedUrl) {
-  final u = Uri.parse(embedUrl);
-  final path = u.hasQuery ? '${u.path}?${u.query}' : u.path;
-  const mirrors = ['matchora.to', 'matchora.pro', 'es.matchora.pro'];
-  final isMatchora = mirrors.contains(u.host);
-  final origins = isMatchora
-      ? <String>[
-          'https://${u.host}',
-          ...mirrors.where((h) => h != u.host).map((h) => 'https://$h'),
-        ]
-      : <String>[u.origin];
-  final hostsJs = jsonEncode(origins).replaceAll('</', r'<\/');
-  final pathJs = jsonEncode(path).replaceAll('</', r'<\/');
+  final srcJs = jsonEncode(embedUrl).replaceAll('</', r'<\/');
   return '''<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -2454,18 +2458,9 @@ iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:0;background:#0
 </style></head><body>
 <script>
 (function(){
-var hosts=$hostsJs,path=$pathJs,ok=[],done=false,n=hosts.length-1;
-function show(h){if(done)return;done=true;var f=document.createElement("iframe");
-f.src=h+path;f.setAttribute("frameborder","0");f.allowFullscreen=true;
-f.allow="autoplay; fullscreen; encrypted-media; picture-in-picture";document.body.appendChild(f);}
-function pick(){for(var i=0;i<n;i++){if(ok[i])return show(hosts[i]);if(ok[i]!==false)return;}show(hosts[n]);}
-function set(i,v){if(ok[i]===undefined){ok[i]=v;pick();}}
-if(!n)return show(hosts[0]);
-hosts.slice(0,n).forEach(function(h,i){
-var t=setTimeout(function(){set(i,false);},4000);
-fetch(h+"/front-health",{mode:"no-cors",cache:"no-store"}).then(
-function(){clearTimeout(t);set(i,true);},
-function(){clearTimeout(t);set(i,false);});});
+var f=document.createElement("iframe");
+f.src=$srcJs;f.setAttribute("frameborder","0");f.allowFullscreen=true;
+f.allow="autoplay; fullscreen; picture-in-picture";document.body.appendChild(f);
 })();
 </script></body></html>''';
 }
@@ -2744,7 +2739,7 @@ class _SettingsPageState extends State<SettingsPage> {
             opt(
               'third',
               'De tercero',
-              'Reproductor web de Matchora dentro de la app',
+              'Reproductor web de RockyLive dentro de la app',
             ),
           ],
         );
@@ -2817,7 +2812,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _SettingsCard(
           icon: Icons.play_circle_outline_rounded,
           title: 'Reproductor',
-          subtitle: _thirdParty ? 'De tercero (Matchora)' : 'Integrado',
+          subtitle: _thirdParty ? 'De tercero (RockyLive)' : 'Integrado',
           onTap: _pickPlayer,
         ),
         const _Label('App'),

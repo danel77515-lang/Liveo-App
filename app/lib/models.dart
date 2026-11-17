@@ -148,7 +148,8 @@ class LiveEvent {
   /// Título escrito a mano en el panel (solo eventos propios).
   final String? customTitle;
 
-  String get title => customTitle ?? '$home vs $away';
+  String get title =>
+      customTitle ?? (away.isEmpty ? home : '$home vs $away');
 
   /// En vivo "de verdad", mirando la hora y no solo la marca del proveedor:
   /// - el proveedor lo marca en vivo pero su hora de inicio todavía no llegó
@@ -167,7 +168,7 @@ class LiveEvent {
     return now.difference(k) <= const Duration(minutes: 10);
   }
 
-  /// Tiene alguna señal: enlace propio o reproductor de Matchora.
+  /// Tiene alguna señal: enlace propio o reproductor de RockyLive.
   bool get playable => links.isNotEmpty || embedUrl != null;
 
   factory LiveEvent.fromJson(Map<String, dynamic> j) {
@@ -221,7 +222,7 @@ class LiveEvent {
       id: '${j['id'] ?? ''}',
       league: _name(j['league'], 'Deporte'),
       home: _name(j['home'], 'Local'),
-      away: _name(j['away'], 'Visitante'),
+      away: _truthy(j['single_title']) ? '' : _name(j['away'], 'Visitante'),
       score: score,
       live: _truthy(j['live']),
       kickoff: _time(j['kickoff']),

@@ -1,6 +1,6 @@
 # Liveo
 
-Aplicación Android (Flutter) + API PHP para XAMPP. Proveedor de eventos y señales: Matchora.
+Aplicación Android (Flutter) + API PHP para XAMPP. Proveedor de eventos y señales: RockyLive (https://rockylive.st/api/).
 
 ```
 Liveo/
@@ -9,6 +9,18 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.16
+- **Matchora eliminado por completo** (API, panel, app y documentación). El proveedor ahora es la
+  **RockyLive API** (`https://rockylive.st/api/events.php?limit=1000`, sin clave).
+- Quedan excluidos: canales 24/7 (incluidos NFL Network y NFL RedZone), darts, WWE, College Basketball,
+  NBL, Allsvenskan y NHL (además del resto de competiciones que ya estaban excluidas).
+- Los ids de RockyLive se guardan como `rl-<id>`; los enlaces m3u8 y favoritos asociados a eventos de
+  Matchora ya no aplican a los eventos nuevos. Se limpia la caché del proveedor anterior.
+- La API ya no tiene `/api/channels` (RockyLive solo ofrece canales 24/7, que están excluidos).
+- Como RockyLive no informa estado ni marcador, "en vivo" se calcula por la hora de inicio y una
+  duración según el deporte; después el evento figura como Finalizado.
+- Eventos sin equipos (p. ej. sesiones de Fórmula 1) se muestran solo con su título.
+
 ## 1. Backend en XAMPP (localhost)
 
 1. Copia **el contenido** de la carpeta `backend` dentro de `C:\xampp\htdocs\Liveo\`
@@ -16,7 +28,7 @@ Liveo/
 2. En el panel de XAMPP inicia **Apache** y **MySQL**.
 3. Abre `http://localhost/Liveo/` → verás el panel de diagnóstico.
 4. Pulsa **Instalar base de datos** (o importa `database/liveo.sql` en phpMyAdmin).
-5. Pulsa **Probar proveedor** para confirmar que tu PC alcanza Matchora.
+5. Pulsa **Probar proveedor** para confirmar que tu PC alcanza RockyLive.
 
 No hace falta crear `config.local.php` con XAMPP por defecto (root sin contraseña). Si tu MySQL tiene
 contraseña, copia `src/config.local.example.php` a `src/config.local.php` y edítalo.
@@ -123,11 +135,11 @@ Primera entrega del rediseño de inicio (estilo PlayZ TV, sin escudos, marcadore
 ## Cambios 1.0.3
 
 ### Panel de administración (enlaces m3u8)
-No crea eventos: los eventos los genera Matchora y el panel solo les **agrega enlaces m3u8**.
+No crea eventos: los eventos vienen de RockyLive y el panel solo les **agrega enlaces m3u8**.
 
 1. Abre `http://192.168.54.109/Liveo/admin/` (solo desde la red local). La primera vez crea la contraseña
    (mínimo 8 caracteres, se guarda cifrada). Las tablas nuevas se crean solas; no hace falta reinstalar.
-2. **Eventos**: lista los eventos de Matchora por fecha (o solo los que están en vivo) con buscador.
+2. **Eventos**: lista los eventos de RockyLive por fecha (o solo los que están en vivo) con buscador.
    Cada fila muestra cuántos enlaces tiene. Toca un evento para gestionarlos.
 3. En el evento: agrega enlaces (hasta 10) con nombre, URL m3u8 y, si el servidor del stream lo exige,
    `Referer` y `User-Agent`. Puedes **Probar** cada enlace (el servidor comprueba que sea una lista HLS válida
@@ -146,7 +158,7 @@ La API (`schedule`, `live`, `events/{id}`) agrega a cada evento el campo `links`
 - **Reproductor propio** (`lib/live_player.dart`): HLS en vivo con ExoPlayer, en horizontal, controles
   minimalistas que se ocultan, selector de fuentes, reintento automático, botón "Ir al directo",
   **imagen en imagen** (también al pulsar inicio) y **Chromecast**. Si un evento no tiene enlaces propios,
-  usa el reproductor de Matchora (iframe) también en horizontal; y si tiene ambos, puedes cambiar desde el menú de fuentes.
+  usa el reproductor de RockyLive (iframe) también en horizontal; y si tiene ambos, puedes cambiar desde el menú de fuentes.
 - Android nativo: `app/native/MainActivity.kt.tpl` (PiP y pantalla encendida) y permisos de Cast se aplican
   solos en el workflow.
 - Chromecast usa el paquete `flutter_chrome_cast` 2.0.0 (versión fija). El televisor descarga el stream por sí
@@ -162,15 +174,13 @@ La API (`schedule`, `live`, `events/{id}`) agrega a cada evento el campo `links`
 - El logo también aparece en la cabecera del inicio y en Ajustes. Pantalla de arranque nativa oscura.
 
 ## Cambios 1.0.1
-- El evento ahora se reproduce **dentro de la app**: el `embed_url` de Matchora se carga en un `iframe`
-  (como indica https://matchora.to/developers) con selección automática de dominio de respaldo
-  (matchora.to / matchora.pro / es.matchora.pro). Ya no se abre la página completa con el aviso
-  "Watch free at matchora.to". La publicidad del reproductor no se oculta ni se tapa (condición de uso de Matchora).
+- El evento se reproduce **dentro de la app**: el `embed_url` de RockyLive se carga en un `iframe`
+  (como indica https://rockylive.st/api/). La publicidad del reproductor no se oculta ni se tapa.
 - Inicio rediseñado: fondo animado, carrusel de destacados, filtro por liga, tarjetas con equipos,
   marcador y minuto, animaciones de entrada, barra inferior flotante y pantalla completa en el reproductor.
 
-## Alcance de Matchora y Chromecast
-Matchora entrega `embed_url` para su reproductor embebido y no URLs directas de los streams, por lo que el Cast
+## Alcance de RockyLive y Chromecast
+RockyLive entrega `embed_url` para su reproductor embebido y no URLs directas de los streams, por lo que el Cast
 nativo solo podrá activarse para fuentes con media URL compatible. El botón actual informa esta limitación.
 
 
@@ -180,7 +190,7 @@ En `http://IP/Liveo/admin/` → **Eventos propios** podés crear eventos a mano:
 deporte, competición, equipos, título (opcional), inicio y estado
 (Automático por horario, Programado, En vivo, Finalizado, Postergado, Cancelado).
 La finalización automática es inicio + 135 minutos; se cambia en **Configuración**.
-Cada evento admite señales (enlaces m3u8) igual que los de Matchora y se mezcla con
+Cada evento admite señales (enlaces m3u8) igual que los de RockyLive y se mezcla con
 ellos en `/api/live`, `/api/schedule` y `/api/events/manual-N`.
 
 Tras actualizar el backend, abrí el panel una vez (o `setup.php`) para que se cree la

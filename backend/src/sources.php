@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Enlaces m3u8 propios de Liveo.
  *
- * Los eventos los genera Matchora; aquí solo se agregan enlaces (fuentes)
+ * Los eventos vienen de RockyLive (https://rockylive.st/api/); aquí solo se agregan enlaces (fuentes)
  * a esos eventos desde el panel /Liveo/admin/. La API los adjunta a cada
  * evento en el campo "links".
  */
@@ -40,7 +40,7 @@ function ensure_sources_schema(PDO $pdo): void
     ensure_manual_schema($pdo);
     // Elimina fuentes guardadas de Cricket y de las competiciones excluidas.
     $blockedLike = [
-        '%cricket%', '%nba g league%', '%g league%', '%ncaa%', '%wwe%', '%pdc darts%', '%darts%',
+        '%cricket%', '%nba g league%', '%g league%', '%college basketball%', '%ncaa%', '%wwe%', '%pdc darts%', '%darts%',
         '%nhl%', '%division di honor%', '%gff super league%', '%american ahl%', '%ahl%',
         '%b1 league%', '%congo ligue 1%', '%elite one%', '%mali%premiere division%',
         '%russian vhl%', '%vhl%', '%russian khl%', '%khl%', '%hockey allsvenskan%',
@@ -57,6 +57,12 @@ function ensure_sources_schema(PDO $pdo): void
     // Los eventos propios (manual-N) nunca se limpian por competición.
     $cleanup = $pdo->prepare('DELETE FROM event_sources WHERE event_id NOT LIKE ? AND (' . $where . ')');
     $cleanup->execute(array_merge(['manual-%'], $blockedLike));
+    // Limpieza de la integración anterior: caché del proveedor antiguo.
+    try {
+        $pdo->exec("DELETE FROM api_cache WHERE cache_key LIKE 'p:%'");
+    } catch (Throwable $e) {
+        // La caché es opcional.
+    }
     $done = true;
 }
 

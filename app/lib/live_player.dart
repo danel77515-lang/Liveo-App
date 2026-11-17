@@ -19,7 +19,7 @@ class LivePlayerPage extends StatefulWidget {
 
   final LiveEvent event;
 
-  /// Si el evento también tiene reproductor de Matchora, permite cambiar a él.
+  /// Si el evento también tiene reproductor de RockyLive, permite cambiar a él.
   final void Function(BuildContext context)? openWeb;
 
   @override
@@ -640,7 +640,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                 if (widget.openWeb != null)
                   const PopupMenuItem<int>(
                     value: -1,
-                    child: Text('Matchora (web)'),
+                    child: Text('RockyLive (web)'),
                   ),
               ],
             ),

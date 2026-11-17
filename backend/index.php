@@ -39,9 +39,9 @@ if (!$pdo) {
 $providerResult = null;
 if (($_GET['check'] ?? '') === 'provider') {
     try {
-        $data = provider('live', 'live');
-        $n = count(extract_list($data, 'events'));
-        $providerResult = [true, 'Proveedor accesible. Eventos en vivo recibidos: ' . $n];
+        $all = rockylive_events();
+        $n = count(array_filter($all, function ($e) { return !empty($e['live']); }));
+        $providerResult = [true, 'RockyLive accesible. Eventos disponibles: ' . count($all) . ' · en vivo ahora: ' . $n];
     } catch (Throwable $e) {
         $providerResult = [false, $e->getMessage()];
     }
@@ -53,9 +53,9 @@ if (($_GET['check'] ?? '') === 'provider') {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Backend</title>
-<link rel="icon" href="assets/favicon.ico?v=1.0.15" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.15">
-<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.15">
+<link rel="icon" href="assets/favicon.ico?v=1.0.16" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.16">
+<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.16">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme:dark; --bg:#0a1019; --card:#111b29; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --ok:#70dfb0; --bad:#ff737d; }
@@ -68,7 +68,7 @@ if (($_GET['check'] ?? '') === 'provider') {
 </head>
 <body>
 <main>
-  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.15" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Proveedor: Matchora</p></div></div>
+  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.16" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Proveedor: RockyLive</p></div></div>
 
   <div class="card">
     <h2>URL para la app Android</h2>
@@ -78,7 +78,7 @@ if (($_GET['check'] ?? '') === 'provider') {
 
   <div class="card">
     <h2>Panel de administración</h2>
-    <p class="mut">Agrega enlaces m3u8 a los eventos que genera Matchora. La app los reproduce con su reproductor integrado (con PiP y Chromecast).</p>
+    <p class="mut">Agrega enlaces m3u8 a los eventos de RockyLive. La app los reproduce con su reproductor integrado (con PiP y Chromecast).</p>
     <p><a class="btn" href="admin/">Abrir panel</a></p>
   </div>
 
@@ -94,7 +94,7 @@ if (($_GET['check'] ?? '') === 'provider') {
       <?php if ($providerResult !== null): ?>
         <tr>
           <td class="<?= $providerResult[0] ? 'ok' : 'bad' ?>"><?= $providerResult[0] ? '✔' : '✖' ?></td>
-          <td>Proveedor Matchora<div class="mut"><?= h($providerResult[1]) ?></div></td>
+          <td>Proveedor RockyLive<div class="mut"><?= h($providerResult[1]) ?></div></td>
         </tr>
       <?php endif; ?>
     </table>

@@ -30,14 +30,13 @@ function require_method(string $method, array $allowed): void
 }
 
 /**
- * Eventos de Matchora. Si el proveedor falla devuelve [[], $error] para poder
- * mostrar igualmente los eventos propios del panel.
+ * Eventos de RockyLive que cumplen $filter. Si el proveedor falla devuelve
+ * [[], $error] para poder mostrar igualmente los eventos propios del panel.
  */
-function provider_event_list(string $path, string $ttlKey): array
+function provider_event_list(callable $filter): array
 {
     try {
-        $data = provider($path, $ttlKey);
-        return [normalize_events(extract_list($data, 'events')), null];
+        return [array_values(array_filter(rockylive_events(), $filter)), null];
     } catch (Throwable $e) {
         return [[], $e];
     }
@@ -66,12 +65,12 @@ try {
             'version'     => LIVEO_VERSION,
             'php'         => PHP_VERSION,
             'database'    => $dbStatus,
-            'provider'    => 'Matchora',
+            'provider'    => 'RockyLive',
             'time'        => date('c'),
         ];
         if (!empty($_GET['deep'])) {
             try {
-                provider('live', 'live');
+                rockylive_events();
                 $out['provider_status'] = 'ok';
             } catch (Throwable $e) {
                 $out['provider_status'] = 'error';
@@ -88,13 +87,13 @@ try {
         if (!valid_date($date)) {
             respond(['success' => false, 'error' => 'Fecha inválida (use AAAA-MM-DD)'], 400);
         }
-        $params = ['date' => $date];
-        foreach (['watchable', 'live'] as $k) {
-            if (isset($_GET[$k]) && is_scalar($_GET[$k])) {
-                $params[$k] = (string)$_GET[$k];
-            }
-        }
-        [$list, $err] = provider_event_list('schedule?' . http_build_query($params), 'schedule');
+        $tz = new DateTimeZone((string)liveo_config()['timezone']);
+        $from = (new DateTimeImmutable($date . ' 00:00:00', $tz))->getTimestamp();
+        $to = (new DateTimeImmutable($date . ' 00:00:00', $tz))->modify('+1 day')->getTimestamp();
+        [$list, $err] = provider_event_list(function ($e) use ($from, $to) {
+            $k = (int)($e['kickoff'] ?? 0);
+            return $k >= $from && $k < $to;
+        });
         $manual = manual_events_for_date($date);
         if ($err !== null && !$manual) {
             throw $err;
@@ -105,23 +104,14 @@ try {
     // ---- En vivo -------------------------------------------------------
     if ($path === 'live') {
         require_method($method, ['GET']);
-        [$list, $err] = provider_event_list('live', 'live');
+        [$list, $err] = provider_event_list(function ($e) {
+            return !empty($e['live']);
+        });
         $manual = manual_events_live();
         if ($err !== null && !$manual) {
             throw $err;
         }
         respond(['success' => true, 'server_time' => time(), 'events' => attach_links(array_merge($manual, $list))]);
-    }
-
-    // ---- Canales -------------------------------------------------------
-    if ($path === 'channels') {
-        require_method($method, ['GET']);
-        $data = provider('channels', 'channels');
-        $channels = extract_list($data, 'channels');
-        $channels = array_values(array_filter($channels, function ($channel) {
-            return !is_array($channel) || !is_cricket_event($channel);
-        }));
-        respond(['success' => true, 'channels' => $channels]);
     }
 
     // ---- Detalle de evento ----------------------------------------------
@@ -134,12 +124,11 @@ try {
             }
             respond(['success' => true, 'event' => attach_links([$mev])[0]]);
         }
-        $data = provider('events/' . rawurlencode($m[1]), 'event');
-        $ev = (isset($data['event']) && is_array($data['event'])) ? $data['event'] : $data;
-        if (is_excluded_event($ev)) {
+        $ev = rockylive_event_by_id($m[1]);
+        if ($ev === null) {
             respond(['success' => false, 'error' => 'Evento no disponible'], 404);
         }
-        respond(['success' => true, 'event' => attach_links([normalize_event($ev)])[0]]);
+        respond(['success' => true, 'event' => attach_links([$ev])[0]]);
     }
 
     // ---- Favoritos (por dispositivo) --------------------------------------

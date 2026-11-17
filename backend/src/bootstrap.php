@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 if (!defined('LIVEO_VERSION')) {
-    define('LIVEO_VERSION', '1.0.15');
+    define('LIVEO_VERSION', '1.0.16');
 }
 
 /** Configuración con valores por defecto aptos para XAMPP. */
@@ -20,11 +20,13 @@ function liveo_config(): array
         'db_pass'          => '',
         'lan_ip'           => '192.168.54.109',
         'timezone'         => 'America/Argentina/Buenos_Aires',
-        'provider_base'    => 'https://matchora.to/api/v1/',
+        // RockyLive API (https://rockylive.st/api/). No necesita clave.
+        'rockylive_api'    => 'https://rockylive.st/api/events.php',
+        'rockylive_limit'  => 1000,
         'provider_timeout' => 15,
         'ssl_verify'       => true,
         'ca_bundle'        => '',
-        'cache_ttl'        => ['schedule' => 120, 'live' => 30, 'channels' => 600, 'event' => 60],
+        'cache_ttl'        => ['events' => 120],
         'debug'            => true,
     ];
     $local = [];
@@ -147,7 +149,7 @@ function cache_set(string $key, array $data, int $ttl): void
 }
 
 // ---------------------------------------------------------------------------
-// Proveedor (Matchora)
+// Proveedor: RockyLive API (https://rockylive.st/api/)
 // ---------------------------------------------------------------------------
 
 function http_get_json(string $url): array
@@ -200,55 +202,9 @@ function http_get_json(string $url): array
     return $data;
 }
 
-/** Consulta al proveedor con caché en MySQL y respaldo con datos vencidos. */
-function provider(string $path, string $ttlKey = 'schedule'): array
-{
-    $c = liveo_config();
-    $key = 'p:' . md5($path);
-
-    $hit = cache_get($key);
-    if ($hit !== null) {
-        return $hit;
-    }
-    try {
-        $url = rtrim((string)$c['provider_base'], '/') . '/' . ltrim($path, '/');
-        $data = http_get_json($url);
-        $ttl = (int)(($c['cache_ttl'][$ttlKey] ?? 60));
-        cache_set($key, $data, $ttl);
-        return $data;
-    } catch (Throwable $e) {
-        $stale = cache_get($key, true);
-        if ($stale !== null) {
-            return $stale;
-        }
-        throw $e;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Normalización de eventos (tolera distintos nombres de campos)
-// ---------------------------------------------------------------------------
-
 function is_list_array(array $a): bool
 {
     return $a === [] || array_keys($a) === range(0, count($a) - 1);
-}
-
-function extract_list(array $data, string $key): array
-{
-    if (isset($data[$key]) && is_array($data[$key])) {
-        return array_values($data[$key]);
-    }
-    if (isset($data['data']) && is_array($data['data'])) {
-        $d = $data['data'];
-        if (isset($d[$key]) && is_array($d[$key])) {
-            return array_values($d[$key]);
-        }
-        if (is_list_array($d)) {
-            return $d;
-        }
-    }
-    return is_list_array($data) ? $data : [];
 }
 
 function pick_name($v): string
@@ -286,99 +242,12 @@ function to_timestamp($v): int
     return $t === false ? 0 : $t;
 }
 
-function normalize_event(array $e): array
+/** Texto en minúsculas, sin signos, para comparar nombres de ligas y títulos. */
+function fold_text(string $v): string
 {
-    $first = function (array $keys) use ($e) {
-        foreach ($keys as $k) {
-            if (isset($e[$k]) && $e[$k] !== '' && $e[$k] !== null) {
-                return $e[$k];
-            }
-        }
-        return null;
-    };
-
-    $norm = [];
-
-    $id = $first(['id', 'event_id', 'eventId', 'slug', 'uuid']);
-    if (is_scalar($id)) {
-        $norm['id'] = (string)$id;
-    }
-
-    $league = pick_name($first(['league', 'competition', 'tournament', 'sport']));
-    if ($league !== '') {
-        $norm['league'] = $league;
-    }
-    $home = pick_name($first(['home', 'home_team', 'homeTeam', 'team1']));
-    if ($home !== '') {
-        $norm['home'] = $home;
-    }
-    $away = pick_name($first(['away', 'away_team', 'awayTeam', 'team2']));
-    if ($away !== '') {
-        $norm['away'] = $away;
-    }
-
-    $ts = to_timestamp($first(['kickoff', 'start_time', 'startTime', 'start', 'starts_at', 'date', 'time']));
-    if ($ts > 0) {
-        $norm['kickoff'] = $ts;
-    }
-
-    $status = $first(['status', 'state']);
-    $statusText = is_array($status) ? pick_name($status) : (is_scalar($status) ? (string)$status : '');
-    if ($statusText !== '') {
-        $norm['status'] = $statusText;
-    }
-    $liveFlag = $first(['live', 'is_live', 'isLive']);
-    $isLive = ($liveFlag === true || $liveFlag === 1 || $liveFlag === '1' || $liveFlag === 'true')
-        || in_array(strtolower($statusText), ['live', 'inplay', 'in_play', 'en vivo'], true);
-    $norm['live'] = $isLive;
-
-    $score = $first(['score']);
-    if (is_array($score)) {
-        $sh = $score['home'] ?? null;
-        $sa = $score['away'] ?? null;
-        if (is_scalar($sh) && is_scalar($sa)) {
-            $norm['score'] = $sh . ' - ' . $sa;
-        }
-    } elseif (is_scalar($score) && (string)$score !== '') {
-        $norm['score'] = (string)$score;
-    } else {
-        $homeScore = $first(['home_score', 'homeScore']);
-        $awayScore = $first(['away_score', 'awayScore']);
-        if (is_scalar($homeScore) && is_scalar($awayScore)) {
-            $norm['score'] = $homeScore . ' - ' . $awayScore;
-        }
-    }
-
-    $embed = $first(['embed_url', 'embedUrl', 'embed', 'stream_url', 'player_url']);
-    if (!is_string($embed) || $embed === '') {
-        $embed = null;
-        $streams = $e['streams'] ?? ($e['sources'] ?? null);
-        if (is_array($streams)) {
-            foreach ($streams as $s) {
-                if (!is_array($s)) {
-                    continue;
-                }
-                foreach (['embed_url', 'embedUrl', 'url'] as $k) {
-                    if (isset($s[$k]) && is_string($s[$k]) && $s[$k] !== '') {
-                        $embed = $s[$k];
-                        break 2;
-                    }
-                }
-            }
-        }
-    }
-    if (is_string($embed) && preg_match('#^https?://#i', $embed)) {
-        $norm['embed_url'] = $embed;
-    }
-
-    $out = $e;
-    foreach ($norm as $k => $v) {
-        $out[$k] = $v;
-    }
-    if (!isset($norm['embed_url'])) {
-        unset($out['embed_url']);
-    }
-    return $out;
+    $v = strtolower($v);
+    $v = preg_replace('/[^a-z0-9]+/', ' ', $v) ?? $v;
+    return trim($v);
 }
 
 /** Excluye deportes y competiciones no deseadas del catálogo de Liveo. */
@@ -403,7 +272,7 @@ function is_excluded_event(array $event): bool
     $blocked = [
         'cricket',
         'nba g league', 'g league',
-        'ncaa division', 'ncaa',
+        'college basketball', 'ncaa division', 'ncaa',
         'wwe', 'world wrestling entertainment',
         'pdc darts', 'darts',
         'nhl', 'national hockey league',
@@ -439,7 +308,7 @@ function is_excluded_event(array $event): bool
     foreach ($blocked as $name) {
         $needle = preg_replace('/[^a-z0-9]+/', ' ', strtolower($name)) ?? strtolower($name);
         if ($needle === 'one') {
-            if (preg_match('/\bone\b/', $haystack) === 1) {
+            if (preg_match('/\\bone\\b/', $haystack) === 1) {
                 return true;
             }
             continue;
@@ -451,24 +320,196 @@ function is_excluded_event(array $event): bool
     return false;
 }
 
-/** Compatibilidad con llamadas antiguas: ahora aplica toda la lista de exclusión. */
-function is_cricket_event(array $event): bool
+/**
+ * Evento crudo de RockyLive que Liveo no quiere mostrar:
+ * canales 24/7, darts, WWE, College Basketball, NBL, Allsvenskan, NHL y el
+ * resto de competiciones de la lista de exclusión.
+ */
+function rocky_is_excluded(array $e): bool
 {
-    return is_excluded_event($event);
+    $always = $e['always_live'] ?? false;
+    if ($always === true || $always === 1 || $always === '1' || strtolower((string)$always) === 'true') {
+        return true;
+    }
+    $title = fold_text(pick_name($e['title'] ?? ''));
+    $league = fold_text(pick_name($e['league'] ?? ''));
+    if (preg_match('/\\b24 ?7\\b/', $title . ' ' . $league) === 1 || preg_match('/\\bchannels?\\b/', $league) === 1) {
+        return true;
+    }
+    if (preg_match('/\\bwwe\\b/', $title) === 1 || preg_match('/\\bdarts?\\b/', $title) === 1) {
+        return true;
+    }
+    $slug = strtolower((string)($e['league_slug'] ?? ''));
+    if (in_array($slug, ['darts', 'nhl', 'nbl', 'allsvenskan'], true)) {
+        return true;
+    }
+    return is_excluded_event($e);
 }
 
-function normalize_events(array $list): array
+/** "A vs. B" -> [local, visitante]; "A at B" -> [B, A]; sin equipos -> null. */
+function rocky_split_title(string $title): ?array
 {
-    $out = [];
-    foreach ($list as $e) {
-        if (is_array($e) && !is_excluded_event($e)) {
-            $normalized = normalize_event($e);
-            if (!is_excluded_event($normalized)) {
-                $out[] = $normalized;
-            }
-        }
+    if (preg_match('/^(.+?)\\s+vs\\.?\\s+(.+)$/iu', $title, $m) === 1) {
+        return [trim($m[1]), trim($m[2])];
+    }
+    if (preg_match('/^(.+?)\\s+(?:at|@)\\s+(.+)$/iu', $title, $m) === 1) {
+        return [trim($m[2]), trim($m[1])];
+    }
+    return null;
+}
+
+/** Minutos que se considera en vivo un evento tras su inicio. */
+function rocky_duration_minutes(string $slug): int
+{
+    $slug = strtolower($slug);
+    if (in_array($slug, ['nba', 'basketball', 'wnba'], true)) {
+        return 170;
+    }
+    if (in_array($slug, ['nfl', 'american-football', 'college-football'], true)) {
+        return 220;
+    }
+    if (in_array($slug, ['baseball', 'mlb'], true)) {
+        return 220;
+    }
+    if (in_array($slug, ['motorsports', 'wrestling'], true)) {
+        return 180;
+    }
+    if (in_array($slug, ['fight', 'ufc', 'boxing'], true)) {
+        return 300;
+    }
+    return 150;
+}
+
+/** Evento de RockyLive -> formato de Liveo (sin estado). null si no sirve. */
+function rocky_normalize_event(array $e): ?array
+{
+    $id = $e['id'] ?? null;
+    if (!is_scalar($id) || (string)$id === '' || preg_match('/^[0-9]{1,18}$/', (string)$id) !== 1) {
+        return null;
+    }
+    $title = trim(pick_name($e['title'] ?? ''));
+    if ($title === '') {
+        return null;
+    }
+    $ts = to_timestamp($e['start_timestamp'] ?? null);
+    if ($ts <= 0) {
+        $ts = to_timestamp($e['start_utc'] ?? null);
+    }
+    if ($ts <= 0) {
+        return null;
+    }
+    $embed = $e['embed_url'] ?? '';
+    if (!is_string($embed) || preg_match('#^https?://#i', $embed) !== 1) {
+        $embed = 'https://rockyembed.st/source/fetch.php?full=' . rawurlencode((string)$id);
+    }
+    $league = trim(pick_name($e['league'] ?? ''));
+    $slug = strtolower(trim((string)($e['league_slug'] ?? '')));
+    $teams = rocky_split_title($title);
+
+    $out = [
+        'id'        => 'rl-' . (string)$id,
+        'title'     => $title,
+        'league'    => $league !== '' ? $league : 'Deporte',
+        'sport'     => $slug,
+        'home'      => $teams ? $teams[0] : $title,
+        'away'      => $teams ? $teams[1] : '',
+        'kickoff'   => $ts,
+        'embed_url' => $embed,
+    ];
+    if (!$teams) {
+        $out['single_title'] = true;
     }
     return $out;
+}
+
+/** Agrega estado (programado / en vivo / finalizado) según la hora. */
+function rocky_apply_state(array $ev, int $now): array
+{
+    $start = (int)($ev['kickoff'] ?? 0);
+    $end = $start + rocky_duration_minutes((string)($ev['sport'] ?? '')) * 60;
+    if ($now < $start) {
+        $ev['live'] = false;
+        $ev['status'] = 'Programado';
+    } elseif ($now < $end) {
+        $ev['live'] = true;
+        $ev['status'] = 'En vivo';
+    } else {
+        $ev['live'] = false;
+        $ev['status'] = 'Finalizado';
+        $ev['state_label'] = 'Finalizado';
+    }
+    return $ev;
+}
+
+/**
+ * Eventos de RockyLive ya filtrados y normalizados (sin estado), con caché en
+ * MySQL y respaldo con datos vencidos si el proveedor no responde.
+ */
+function rockylive_base_events(): array
+{
+    static $memo = null;
+    if ($memo !== null) {
+        return $memo;
+    }
+    $c = liveo_config();
+    $key = 'rl:events';
+    $hit = cache_get($key);
+    if ($hit !== null && isset($hit['events']) && is_array($hit['events'])) {
+        return $memo = $hit['events'];
+    }
+    try {
+        $limit = max(1, min(1000, (int)$c['rockylive_limit']));
+        $url = (string)$c['rockylive_api'];
+        $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query(['limit' => $limit]);
+        $data = http_get_json($url);
+        if (!isset($data['events']) || !is_array($data['events'])) {
+            throw new RuntimeException('Respuesta inválida de RockyLive');
+        }
+        $events = [];
+        foreach ($data['events'] as $raw) {
+            if (!is_array($raw) || rocky_is_excluded($raw)) {
+                continue;
+            }
+            $ev = rocky_normalize_event($raw);
+            if ($ev !== null && !is_excluded_event($ev)) {
+                $events[] = $ev;
+            }
+        }
+        usort($events, function ($a, $b) {
+            return ((int)$a['kickoff'] <=> (int)$b['kickoff']) ?: strcmp((string)$a['id'], (string)$b['id']);
+        });
+        cache_set($key, ['events' => $events], (int)($c['cache_ttl']['events'] ?? 120));
+        return $memo = $events;
+    } catch (Throwable $e) {
+        $stale = cache_get($key, true);
+        if ($stale !== null && isset($stale['events']) && is_array($stale['events'])) {
+            return $memo = $stale['events'];
+        }
+        throw $e;
+    }
+}
+
+/** Todos los eventos de RockyLive con su estado actual. */
+function rockylive_events(): array
+{
+    $now = time();
+    return array_map(function ($ev) use ($now) {
+        return rocky_apply_state($ev, $now);
+    }, rockylive_base_events());
+}
+
+/** Un evento por id ("rl-123" o solo "123"). */
+function rockylive_event_by_id(string $id): ?array
+{
+    if (preg_match('/^[0-9]+$/', $id) === 1) {
+        $id = 'rl-' . $id;
+    }
+    foreach (rockylive_events() as $ev) {
+        if ((string)$ev['id'] === $id) {
+            return $ev;
+        }
+    }
+    return null;
 }
 
 function valid_date(string $d): bool
