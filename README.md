@@ -50,7 +50,7 @@ URLs finales (IP de tu PC: `192.168.54.109`):
 
 1. Descomprime el zip y sube **el contenido** a la raíz de un repositorio (la carpeta `.github` debe quedar en la raíz).
 2. Actions → **Liveo Android APK** → *Run workflow*. Solo corre a mano (ya no en cada push).
-3. Descarga el artefacto `Liveo-Android-APK` (`app-release.apk`) e instálalo en el teléfono.
+3. Descarga el APK desde **Releases** (`Liveo-<versión>.apk`) o, si existe, del artefacto `Liveo-Android-APK`, e instálalo en el teléfono.
 
 El workflow:
 - genera la plataforma Android (`flutter create`), añade el permiso `INTERNET` y habilita HTTP en red local
@@ -62,6 +62,12 @@ Para usar otra URL sin tocar el código: *Settings → Secrets and variables →
 
 Compilar en local: `cd app && flutter create --platforms=android --project-name liveo . && flutter run --dart-define=API_BASE_URL=http://192.168.54.109/Liveo/api`
 (recuerda añadir INTERNET y `usesCleartextTraffic` al manifiesto, como hace el workflow).
+
+## Cambios 1.0.10
+- Workflow: el APK ahora se publica en una **Release** del repositorio (`v<versión>`, archivo `Liveo-<versión>.apk`),
+  que no cuenta en el cupo de artefactos de Actions. Descárgalo en la pestaña **Releases** (columna derecha del repo).
+- La subida como artefacto queda como copia opcional: si el cupo está lleno, ya no hace fallar la compilación.
+- Requiere que Actions pueda escribir: *Settings → Actions → General → Workflow permissions → Read and write permissions*.
 
 ## Cambios 1.0.9
 - Workflow: corre **solo a mano** (*Run workflow*) y el artefacto se conserva **2 días** (antes 14), para no
@@ -87,7 +93,7 @@ Primera entrega del rediseño de inicio (estilo PlayZ TV, sin escudos, marcadore
   reproductor, borrar datos de la app (favoritos e historial), versión y salir.
 - Los favoritos y el historial de búsqueda son locales; el endpoint `/api/channels` sigue en el backend
   pero la app ya no lo usa.
-- Pendiente para la 1.0.10: `/api/config` (banner de actualización, URL de la API remota), reporte de enlaces
+- Pendiente para la 1.0.11: `/api/config` (banner de actualización, URL de la API remota), reporte de enlaces
   caídos y caché de la agenda.
 
 ## Cambios 1.0.6
