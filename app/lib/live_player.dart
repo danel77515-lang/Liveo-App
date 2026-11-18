@@ -697,16 +697,6 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               ],
             ),
           ],
-          const SizedBox(height: 18),
-          OutlinedButton.icon(
-            onPressed: _toggleOrientation,
-            icon: const Icon(Icons.fullscreen_rounded),
-            label: const Text('Pantalla completa (horizontal)'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white24),
-            ),
-          ),
         ],
       ),
     );
@@ -942,12 +932,12 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: behind ? Colors.white24 : Pal.live,
+                color: Pal.live,
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: Text(
-                behind ? 'IR AL DIRECTO' : 'EN VIVO',
-                style: const TextStyle(
+              child: const Text(
+                'EN VIVO',
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
