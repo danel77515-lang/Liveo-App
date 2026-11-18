@@ -47,6 +47,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   String _castName = '';
   bool _remotePlaying = true;
   StreamSubscription<bool>? _castSub;
+  StreamSubscription<String>? _castErrSub;
 
   List<StreamSource> get _links => widget.event.links;
   StreamSource get _src => _links[_index];
@@ -71,6 +72,9 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
           _vc?.play();
         }
       });
+      _castErrSub = CastService.playbackErrors.listen((m) {
+        if (_casting && mounted) _snack(m);
+      });
     }
     final start = widget.initialIndex;
     _open(start >= 0 && start < _links.length ? start : 0);
@@ -89,6 +93,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     _hideTimer?.cancel();
     _retryTimer?.cancel();
     _castSub?.cancel();
+    _castErrSub?.cancel();
     NativeBridge.inPip.removeListener(_onPip);
     final c = _vc;
     _vc = null;
@@ -368,7 +373,11 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
 
   Future<void> _castSheet() async {
     if (!CastService.ready) {
-      _snack('Chromecast no está disponible en este dispositivo.');
+      final why = CastService.initError;
+      _snack(
+        'Chromecast no está disponible en este dispositivo'
+        '${why == null ? '.' : ': $why'}',
+      );
       return;
     }
     CastService.startDiscovery();
@@ -496,6 +505,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         _controls = true;
       });
     } catch (e) {
+      await CastService.stop();
       _snack('No se pudo transmitir: $e');
     }
   }
