@@ -33,6 +33,7 @@ function ensure_manual_schema(PDO $pdo): void
         home_logo VARCHAR(500) NULL,
         away_logo VARCHAR(500) NULL,
         time_tbc TINYINT(1) NOT NULL DEFAULT 0,
+        duration_min SMALLINT UNSIGNED NULL,
         import_key VARCHAR(40) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         KEY idx_start (start_ts),
@@ -53,6 +54,7 @@ function ensure_manual_schema(PDO $pdo): void
         'home_logo'  => 'VARCHAR(500) NULL',
         'away_logo'  => 'VARCHAR(500) NULL',
         'time_tbc'   => 'TINYINT(1) NOT NULL DEFAULT 0',
+        'duration_min' => 'SMALLINT UNSIGNED NULL',
         'import_key' => 'VARCHAR(40) NULL',
     ];
     foreach ($add as $col => $def) {
@@ -168,6 +170,9 @@ function manual_duration_minutes(?PDO $pdo = null): int
 function manual_row_to_event(array $r, int $durationMin, int $now): array
 {
     $start = (int)$r['start_ts'];
+    // Duración propia del evento (columna «hasta» del CSV); si no, la global.
+    $own = (int)($r['duration_min'] ?? 0);
+    $durationMin = $own > 0 ? $own : $durationMin;
     $end = $start + $durationMin * 60;
     $tbc = !empty($r['time_tbc']);
     $mode = (string)$r['state_mode'];
@@ -294,9 +299,9 @@ function manual_events_live(): array
     $dur = manual_duration_minutes($pdo);
     return array_values(array_filter(manual_query_events(
         "SELECT * FROM manual_events WHERE active = 1 AND (state_mode = 'live'
-            OR (state_mode = 'auto' AND time_tbc = 0 AND start_ts <= ? AND start_ts + ? > ?))
+            OR (state_mode = 'auto' AND time_tbc = 0 AND start_ts <= ? AND start_ts + COALESCE(NULLIF(duration_min, 0), ?) * 60 > ?))
          ORDER BY start_ts ASC, id ASC",
-        [$now, $dur * 60, $now]
+        [$now, $dur, $now]
     ), function ($ev) {
         return !empty($ev['live']);
     }));

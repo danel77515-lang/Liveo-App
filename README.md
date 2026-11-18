@@ -9,13 +9,14 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
-## Cambios 1.0.17
+## Cambios 1.0.18
 - **RockyLive eliminado por completo** (API, panel, app y documentación): ya no hay publicidades de terceros ni
   reproductor web. Los eventos son propios: se cargan a mano o **subiendo un CSV** en `admin/ → Importar CSV`.
 - **Importar CSV**: acepta el formato del calendario (`fecha, hora_Argentina_ART, deporte, competicion, evento…`);
   «A vs B» se separa en local y visitante; sin hora queda como **hora a confirmar**. Volver a subir el CSV
   actualiza los eventos sin duplicarlos y conserva estado, minuto, visibilidad y enlaces. Hay plantilla descargable.
-  Columnas opcionales: `escudo_local`, `escudo_visitante`, `estado`, `minuto`.
+  Columnas opcionales: `hasta` (hora de fin HH:MM, o `duracion_min`; define hasta cuándo está «en vivo» cada evento),
+  `local`, `visitante`, `escudo_local`, `escudo_visitante`, `estado`, `minuto`.
 - **Minuto asociado a cada evento**: en el evento (panel) → *Control en vivo* (estado + minuto). La app lo muestra
   en rojo debajo de la hora, solo mientras está en vivo.
 - **Escudos**: por evento (URL) o una sola vez por equipo en `admin/ → Escudos` (también por CSV `equipo,escudo`).

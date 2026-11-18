@@ -126,6 +126,7 @@ function read_manual_fields(): array
         'start'      => trim((string)($_POST['start'] ?? '')),
         'state_mode' => (string)($_POST['state_mode'] ?? 'auto'),
         'minute'     => trim((string)($_POST['minute'] ?? '')),
+        'duration'   => max(0, min(720, (int)($_POST['duration'] ?? 0))),
         'home_logo'  => trim((string)($_POST['home_logo'] ?? '')),
         'away_logo'  => trim((string)($_POST['away_logo'] ?? '')),
         'time_tbc'   => !empty($_POST['time_tbc']) ? 1 : 0,
@@ -208,6 +209,9 @@ function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
             <span class="mut">Se calcula automáticamente <?= (int)$dur ?> minutos después del inicio. Puedes cambiar esta duración en <a class="link" href="?v=config">Configuración</a>.</span></label>
         </div>
         <label style="color:var(--txt)"><input type="checkbox" name="time_tbc" value="1" <?= !empty($v['time_tbc']) ? 'checked' : '' ?>> Hora a confirmar (solo cuenta la fecha; no arranca solo)</label>
+        <label>Duración en minutos (opcional; vacío = la general de Configuración)
+          <input type="number" name="duration" min="0" max="720" value="<?= (int)($v['duration'] ?? 0) > 0 ? (int)$v['duration'] : '' ?>" placeholder="115">
+        </label>
         <div class="grid">
         <label>Minuto (solo se ve mientras está en vivo)
           <input name="minute" value="<?= h((string)($v['minute'] ?? '')) ?>" maxlength="12" placeholder="34, 45+2, Descanso">
@@ -440,27 +444,27 @@ if ($method === 'POST' && !$fatal) {
                     }
                     $pdo->prepare(
                         'UPDATE manual_events SET sport = ?, league = ?, home = ?, away = ?, title = ?, start_ts = ?, state_mode = ?,
-                                minute = ?, home_logo = ?, away_logo = ?, time_tbc = ? WHERE id = ?'
+                                minute = ?, home_logo = ?, away_logo = ?, time_tbc = ?, duration_min = ? WHERE id = ?'
                     )->execute([
                         $f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode'],
                         $f['minute'] !== '' ? $f['minute'] : null,
                         $f['home_logo'] !== '' ? $f['home_logo'] : null,
                         $f['away_logo'] !== '' ? $f['away_logo'] : null,
-                        $f['time_tbc'], $mid,
+                        $f['time_tbc'], $f['duration'] > 0 ? $f['duration'] : null, $mid,
                     ]);
                     unset($_SESSION['manual_prefill']);
                     flash('ok', 'Cambios guardados.');
                     go('v=event&id=manual-' . $mid);
                 }
                 $pdo->prepare(
-                    'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active, minute, home_logo, away_logo, time_tbc)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                    'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active, minute, home_logo, away_logo, time_tbc, duration_min)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)'
                 )->execute([
                     $f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode'],
                     $f['minute'] !== '' ? $f['minute'] : null,
                     $f['home_logo'] !== '' ? $f['home_logo'] : null,
                     $f['away_logo'] !== '' ? $f['away_logo'] : null,
-                    $f['time_tbc'],
+                    $f['time_tbc'], $f['duration'] > 0 ? $f['duration'] : null,
                 ]);
                 $newId = (int)$pdo->lastInsertId();
                 unset($_SESSION['manual_prefill']);
@@ -729,6 +733,7 @@ if ($fatal) {
                 'home_logo'  => (string)($manualRow['home_logo'] ?? ''),
                 'away_logo'  => (string)($manualRow['away_logo'] ?? ''),
                 'time_tbc'   => (int)($manualRow['time_tbc'] ?? 0),
+                'duration'   => (int)($manualRow['duration_min'] ?? 0),
             ];
             ?>
             <div class="card">
@@ -931,7 +936,7 @@ if ($fatal) {
         $mv = is_array($mpre) ? $mpre : [
             'sport' => '', 'league' => '', 'home' => '', 'away' => '', 'title' => '',
             'start' => date('Y-m-d\TH:i', (int)(ceil(time() / 900) * 900)),
-            'state_mode' => 'auto', 'minute' => '', 'home_logo' => '', 'away_logo' => '', 'time_tbc' => 0,
+            'state_mode' => 'auto', 'minute' => '', 'home_logo' => '', 'away_logo' => '', 'time_tbc' => 0, 'duration' => 0,
         ];
         echo '<p><a class="link" href="?v=manual">← Volver a los eventos</a></p>';
         echo manual_form_html($pdo, $mv, 0, manual_duration_minutes($pdo));
@@ -972,7 +977,7 @@ if ($fatal) {
         <div class="card" style="max-width:720px">
           <h2>Columnas que entiende</h2>
           <p class="mut">
-            <b>fecha</b> (AAAA-MM-DD o DD/MM/AAAA) · <b>hora</b> (cualquier columna que empiece con «hora», p. ej. <code>hora_Argentina_ART</code>; vacía = hora a confirmar) ·
+            <b>fecha</b> (AAAA-MM-DD o DD/MM/AAAA) · <b>hora</b> (cualquier columna que empiece con «hora», p. ej. <code>hora_Argentina_ART</code>; vacía = hora a confirmar) · <b>hasta</b> (hora de fin, HH:MM, o <code>duracion_min</code>; define hasta cuándo está «en vivo») ·
             <b>deporte</b> · <b>competicion</b> · <b>evento</b> («Local vs Visitante»; sin «vs» es un evento de un solo título).<br>
             Opcionales: <b>local</b>, <b>visitante</b>, <b>escudo_local</b>, <b>escudo_visitante</b> (URLs), <b>estado</b> (auto, programado, en vivo, finalizado, postergado, cancelado) y <b>minuto</b>.
             Las demás columnas (<code>dia</code>, <code>detalle</code>, <code>fuente</code>…) se ignoran. Las horas se interpretan en <b><?= h((string)liveo_config()['timezone']) ?></b>.
@@ -1064,9 +1069,9 @@ $view = admin_view();
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.17" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.17">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.17">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.18" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.18">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.18">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -1132,7 +1137,7 @@ $view = admin_view();
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.17" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.18" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
       <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new', 'event'], true) ? 'on' : '' ?>">Eventos</a>

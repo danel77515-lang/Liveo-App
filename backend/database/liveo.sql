@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS manual_events (
   home_logo VARCHAR(500) NULL,
   away_logo VARCHAR(500) NULL,
   time_tbc TINYINT(1) NOT NULL DEFAULT 0,
+  duration_min SMALLINT UNSIGNED NULL,
   import_key VARCHAR(40) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY idx_start (start_ts),

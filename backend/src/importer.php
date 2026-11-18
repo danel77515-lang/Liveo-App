@@ -54,6 +54,9 @@ function csv_canonical_column(string $key): ?string
     if ($key === 'estado_horario') {
         return 'estado_horario';
     }
+    if ($key === 'hora_fin') {
+        return 'hasta';
+    }
     if (strncmp($key, 'hora', 4) === 0 || $key === 'time') {
         return 'hora';
     }
@@ -68,6 +71,8 @@ function csv_canonical_column(string $key): ?string
         'escudo_visitante' => 'escudo_visitante', 'logo_visitante' => 'escudo_visitante', 'away_logo' => 'escudo_visitante',
         'estado' => 'estado', 'state' => 'estado', 'status' => 'estado',
         'minuto' => 'minuto', 'minute' => 'minuto',
+        'hasta' => 'hasta', 'fin' => 'hasta', 'hora_fin' => 'hasta',
+        'duracion_min' => 'duracion', 'duracion' => 'duracion',
         'equipo' => 'equipo', 'team' => 'equipo', 'nombre' => 'equipo',
         'escudo' => 'escudo', 'logo' => 'escudo', 'url' => 'escudo',
     ];
@@ -164,6 +169,29 @@ function csv_parse_state(string $v): ?string
     return $map[$k] ?? null;
 }
 
+/**
+ * Duración en minutos de un evento: columna «hasta» (hora de fin, HH:MM; si es
+ * menor que la de inicio cruza la medianoche) o «duracion_min». null = usar la
+ * duración general del panel.
+ */
+function csv_duration_minutes(?string $start, string $until, string $minutes): ?int
+{
+    if (preg_match('/^\s*(\d{1,4})\s*$/', $minutes, $m) === 1 && (int)$m[1] >= 1) {
+        return min(720, (int)$m[1]);
+    }
+    $end = csv_parse_time($until);
+    if ($start === null || $end === null) {
+        return null;
+    }
+    [$sh, $sm] = array_map('intval', explode(':', $start));
+    [$eh, $em] = array_map('intval', explode(':', $end));
+    $d = ($eh * 60 + $em) - ($sh * 60 + $sm);
+    if ($d <= 0) {
+        $d += 1440;
+    }
+    return min(720, $d);
+}
+
 /** "A vs B" / "A vs. B" -> [A, B]; si no hay rivales, null. */
 function csv_split_teams(string $evento): ?array
 {
@@ -201,8 +229,8 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
 
     $find = $pdo->prepare('SELECT id, time_tbc, start_ts FROM manual_events WHERE import_key = ?');
     $ins = $pdo->prepare(
-        'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active, minute, home_logo, away_logo, time_tbc, import_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)'
+        'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active, minute, home_logo, away_logo, time_tbc, duration_min, import_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)'
     );
 
     $pdo->beginTransaction();
@@ -236,6 +264,7 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
                 continue;
             }
             $tbc = $time === null ? 1 : 0;
+            $dur = csv_duration_minutes($time, (string)($row['hasta'] ?? ''), (string)($row['duracion'] ?? ''));
             try {
                 $start = (new DateTimeImmutable($date . ' ' . ($time ?? '00:00') . ':00', $tz))->getTimestamp();
             } catch (Throwable $e) {
@@ -263,6 +292,10 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
                 }
                 $set = 'sport = ?, league = ?, home = ?, away = ?, title = ?, start_ts = ?, time_tbc = ?';
                 $par = [$sport, $league, $home, $away, $title, $start, $tbc];
+                if ($dur !== null) {
+                    $set .= ', duration_min = ?';
+                    $par[] = $dur;
+                }
                 if ($state !== null) {
                     $set .= ', state_mode = ?';
                     $par[] = $state;
@@ -288,7 +321,7 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
                     $minute !== '' ? $minute : null,
                     $hl !== '' ? $hl : null,
                     $al !== '' ? $al : null,
-                    $tbc, $key,
+                    $tbc, $dur, $key,
                 ]);
                 $res['new']++;
             }
@@ -325,9 +358,9 @@ function logos_import_rows(PDO $pdo, array $rows): int
 function csv_template(): string
 {
     return "\xEF\xBB\xBF" . implode("\n", [
-        'fecha,hora,deporte,competicion,evento,escudo_local,escudo_visitante,estado,minuto',
-        '2026-11-21,16:00,Fútbol,Premier League,Chelsea vs Leeds United,https://ejemplo.com/chelsea.png,https://ejemplo.com/leeds.png,,',
-        '2026-11-22,,Ciclismo,UCI WorldTour,Santos Tour Down Under - etapa 1,,,,',
-        '2026-11-23,22:00,Fútbol,Liga Profesional,Boca Juniors vs River Plate,,,en vivo,34',
+        'fecha,hora,hasta,deporte,competicion,evento,escudo_local,escudo_visitante,estado,minuto',
+        '2026-11-21,12:00,13:55,Fútbol,Premier League,Chelsea vs Leeds United,https://ejemplo.com/chelsea.png,https://ejemplo.com/leeds.png,,',
+        '2026-11-22,,,Ciclismo,UCI WorldTour,Santos Tour Down Under - etapa 1,,,,',
+        '2026-11-23,22:00,23:55,Fútbol,Liga Profesional,Boca Juniors vs River Plate,,,en vivo,34',
     ]) . "\n";
 }
