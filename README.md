@@ -9,6 +9,11 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.23 (solo app; el backend sigue en 1.0.22)
+- **Reproductor:** la insignia queda siempre como **«EN VIVO»** (ya no cambia a «IR AL DIRECTO»); si el video quedó
+  atrasado, tocarla vuelve al directo. Se quita el botón «Pantalla completa (horizontal)» del panel inferior
+  (el ícono de pantalla completa de la barra del video sigue disponible).
+
 ## Cambios 1.0.22
 - **Enlaces iframe corregidos:** al pegar el código `<iframe …>` en un enlace del panel, ahora se **guarda el iframe**
   (limpio: `src`, `allow`, `allowfullscreen`, `referrerpolicy`, `sandbox`…) además de su URL, y la app lo **carga tal cual**
