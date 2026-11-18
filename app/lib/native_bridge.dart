@@ -56,13 +56,30 @@ class ScreenMode {
 
   static int _users = 0;
 
-  static Future<void> landscape() async {
+  /// El reproductor se abre en vertical.
+  static Future<void> portrait() async {
     _users++;
     await SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
+      DeviceOrientation.portraitUp,
     ]);
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  /// Pasa a horizontal (pantalla completa) o vuelve a vertical, a elección
+  /// de quien mira.
+  static Future<void> setLandscape(bool on) async {
+    if (on) {
+      await SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      await SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
   }
 
   static Future<void> restore() async {

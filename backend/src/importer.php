@@ -280,6 +280,17 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
             $minute = mb_substr(trim((string)($row['minuto'] ?? '')), 0, 12);
             $hl = csv_clean_url((string)($row['escudo_local'] ?? ''));
             $al = csv_clean_url((string)($row['escudo_visitante'] ?? ''));
+            // Un escudo del CSV queda guardado para ese equipo: no hay que volver a cargarlo.
+            if ($away !== '' && ($hl !== '' || $al !== '')) {
+                if ($hl !== '') {
+                    remember_team_logo($pdo, $home, $hl);
+                }
+                if ($al !== '') {
+                    remember_team_logo($pdo, $away, $al);
+                }
+                $hl = '';
+                $al = '';
+            }
             $key = sha1($date . '|' . team_key($league) . '|' . team_key($evento !== '' ? $evento : $home . ' vs ' . $away));
 
             $find->execute([$key]);

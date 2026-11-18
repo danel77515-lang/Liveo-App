@@ -16,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.19';
+const String liveoVersion = '1.0.20';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -634,12 +634,18 @@ class _LiveoAppState extends State<LiveoApp> {
   }
 }
 
-/// Abre el reproductor integrado del evento (enlaces m3u8 cargados en el panel).
+/// Abre el evento: con varias opciones muestra una ventana para elegir; con una
+/// sola abre el reproductor integrado directamente.
 Future<void> openEvent(BuildContext context, LiveEvent e) async {
   if (e.links.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Este evento todavía no tiene señal.')),
     );
+    return;
+  }
+  // Varias opciones: ventana para elegir; con una sola se abre directo.
+  if (e.links.length > 1) {
+    await _showSources(context, e);
     return;
   }
   await Navigator.of(context).push(
@@ -817,9 +823,8 @@ String _dayText(DateTime d) =>
     '${_weekdays[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
 
 String _dayLabel(DateTime k) {
-  final now = DateTime.now();
-  if (_sameDay(k, now)) return 'Hoy';
-  if (_sameDay(k, now.add(const Duration(days: 1)))) return 'Mañana';
+  // Hoy, o la fecha (20/11); nunca «Mañana».
+  if (_sameDay(k, DateTime.now())) return 'Hoy';
   return fmtDm(k);
 }
 
@@ -918,7 +923,7 @@ class FavStore {
 // Filtros del inicio
 // ---------------------------------------------------------------------------
 
-enum _Quick { all, live, today, tomorrow }
+enum _Quick { all, live, today, upcoming }
 
 /// Lo que se muestra en el inicio: eventos en vivo y próximos.
 List<LiveEvent> _homeEvents(List<LiveEvent> all) {
@@ -934,7 +939,6 @@ List<LiveEvent> _homeEvents(List<LiveEvent> all) {
 
 List<LiveEvent> _applyQuick(List<LiveEvent> src, _Quick q) {
   final now = DateTime.now();
-  final tm = now.add(const Duration(days: 1));
   switch (q) {
     case _Quick.all:
       return src;
@@ -945,10 +949,13 @@ List<LiveEvent> _applyQuick(List<LiveEvent> src, _Quick q) {
         final k = e.kickoff;
         return e.liveNow || (k != null && _sameDay(k, now));
       }).toList();
-    case _Quick.tomorrow:
+    case _Quick.upcoming:
+      // «Próximos»: desde pasado mañana en adelante (hoy y mañana ya se ven
+      // en «Hoy» y, con su fecha, en «Todos»).
+      final from = DateTime(now.year, now.month, now.day + 2);
       return src.where((e) {
         final k = e.kickoff;
-        return !e.liveNow && k != null && _sameDay(k, tm);
+        return !e.liveNow && k != null && !k.isBefore(from);
       }).toList();
   }
 }
@@ -1143,7 +1150,7 @@ class _TeamRow extends StatelessWidget {
   }
 }
 
-/// Un casillero de la cuenta regresiva: número de dos cifras y su unidad.
+/// Un casillero de la cuenta regresiva (horas, minutos o segundos).
 class _CdCell extends StatelessWidget {
   const _CdCell({required this.value, required this.unit});
 
@@ -1162,7 +1169,7 @@ class _CdCell extends StatelessWidget {
               _p2(value),
               maxLines: 1,
               style: const TextStyle(
-                fontSize: 15,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w700,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
@@ -1172,7 +1179,7 @@ class _CdCell extends StatelessWidget {
             unit,
             maxLines: 1,
             style: TextStyle(
-              fontSize: 8,
+              fontSize: 7.5,
               letterSpacing: 0.4,
               fontWeight: FontWeight.w600,
               color: _muted(context),
@@ -1184,8 +1191,33 @@ class _CdCell extends StatelessWidget {
   }
 }
 
-/// Columna derecha: cuenta regresiva (días, horas, minutos y segundos), «EN VIVO»
-/// con ondas, o el estado del evento.
+/// «Comienza en N días» (dos líneas, compacto).
+class _InDays extends StatelessWidget {
+  const _InDays({required this.days, this.note});
+
+  final int days;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = TextStyle(fontSize: 10.5, color: _muted(context));
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('Comienza en', style: muted),
+        Text(
+          days == 1 ? '1 día' : '$days días',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        if (note != null) Text(note!, style: muted.copyWith(fontSize: 9.5)),
+      ],
+    );
+  }
+}
+
+/// Columna derecha: «EN VIVO» con la señal al lado, «Comienza en N días» o, ya
+/// el mismo día, la cuenta regresiva en horas · minutos · segundos.
 class _RightBlock extends StatelessWidget {
   const _RightBlock({required this.event, required this.now});
 
@@ -1201,15 +1233,15 @@ class _RightBlock extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _PulsingLive(size: 18),
-            SizedBox(width: 4),
+            _PulsingLive(size: 15),
+            SizedBox(width: 3),
             Text(
               'EN VIVO',
               style: TextStyle(
                 color: Pal.live,
                 fontWeight: FontWeight.w800,
-                fontSize: 12,
-                letterSpacing: 0.4,
+                fontSize: 11.5,
+                letterSpacing: 0.3,
               ),
             ),
           ],
@@ -1224,7 +1256,7 @@ class _RightBlock extends StatelessWidget {
           textAlign: TextAlign.center,
           maxLines: 2,
           style: TextStyle(
-            fontSize: 12.5,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
             color: _muted(context),
           ),
@@ -1242,32 +1274,39 @@ class _RightBlock extends StatelessWidget {
       final days = DateTime(k.year, k.month, k.day)
           .difference(DateTime(now.year, now.month, now.day))
           .inDays;
-      final big = days <= 0 ? 'Hoy' : (days == 1 ? 'Mañana' : '$days');
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            days > 1 ? '$big días' : big,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-          Text('Hora a confirmar', style: muted, textAlign: TextAlign.center),
-        ],
-      );
+      if (days <= 0) {
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Hoy',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+            Text(
+              'Hora a confirmar',
+              style: muted.copyWith(fontSize: 9.5),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        );
+      }
+      return _InDays(days: days, note: 'Hora a confirmar');
     }
     final left = k.difference(now);
     if (left <= Duration.zero) {
       return Center(child: Text('Finalizado', style: muted));
     }
-    // Redondea hacia arriba para que el último segundo sea 00:00:00:01.
+    // Redondea hacia arriba para que el último segundo sea 00:00:01.
     final secs = (left.inMilliseconds / 1000).ceil();
     final days = secs ~/ 86400;
-    // Cuando ya falta menos de un día, la cuenta va en horas y no muestra días.
+    // Con días de por medio no hay cuenta: solo «Comienza en N días».
+    if (days > 0) return _InDays(days: days);
+    // Ya el mismo día: cuenta regresiva en horas · minutos · segundos.
     return Center(
       child: Row(
         children: [
-          if (days > 0) _CdCell(value: days, unit: 'DÍAS'),
-          _CdCell(value: (secs % 86400) ~/ 3600, unit: 'HRS'),
+          _CdCell(value: secs ~/ 3600, unit: 'HRS'),
           _CdCell(value: (secs % 3600) ~/ 60, unit: 'MIN'),
           _CdCell(value: secs % 60, unit: 'SEG'),
         ],
@@ -1443,9 +1482,16 @@ class _EventCard extends StatelessWidget {
                           width: 50,
                           child: _TimeColumn(event: event, now: now),
                         ),
+                        VerticalDivider(
+                          width: 1,
+                          thickness: 1,
+                          indent: 8,
+                          endIndent: 8,
+                          color: border,
+                        ),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(2, 7, 6, 7),
+                            padding: const EdgeInsets.fromLTRB(8, 7, 6, 7),
                             child: event.away.isEmpty
                                 ? Align(
                                     alignment: Alignment.centerLeft,
@@ -1486,7 +1532,7 @@ class _EventCard extends StatelessWidget {
                           color: border,
                         ),
                         SizedBox(
-                          width: 112,
+                          width: 108,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 6,
@@ -1660,6 +1706,234 @@ class _QuickChip extends StatelessWidget {
   }
 }
 
+class _SportCount {
+  const _SportCount(this.name, this.count);
+
+  final String name;
+  final int count;
+}
+
+/// Deportes presentes en la lista, del que más eventos tiene al que menos.
+List<_SportCount> _sportCounts(List<LiveEvent> list) {
+  final m = <String, int>{};
+  for (final e in list) {
+    final s = e.sport.trim();
+    if (s.isNotEmpty) m[s] = (m[s] ?? 0) + 1;
+  }
+  final out = [for (final x in m.entries) _SportCount(x.key, x.value)]
+    ..sort((a, b) {
+      final c = b.count.compareTo(a.count);
+      return c != 0 ? c : a.name.compareTo(b.name);
+    });
+  return out;
+}
+
+/// Chip del filtro de deportes (al final de la fila de chips).
+class _SportChip extends StatelessWidget {
+  const _SportChip({required this.sport, required this.onTap});
+
+  final String? sport;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final on = sport != null;
+    final border = cs.onSurface.withValues(alpha: 0.18);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: on ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: on ? Pal.accent : border,
+            width: on ? 1.4 : 1,
+          ),
+        ),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.tune_rounded,
+                  size: 17,
+                  color: on ? Pal.accent : _muted(context),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  sport ?? 'Deporte',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: on ? Pal.accent : cs.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.arrow_drop_down_rounded,
+                  size: 20,
+                  color: on ? Pal.accent : _muted(context),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Hoja con los deportes disponibles (devuelve el nombre, o '' para todos).
+class _SportSheet extends StatelessWidget {
+  const _SportSheet({required this.sports, required this.selected});
+
+  final List<_SportCount> sports;
+  final String? selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = sports.fold<int>(0, (a, s) => a + s.count);
+    Widget tile(String label, int count, String value, bool on) {
+      return ListTile(
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        title: Text(
+          label,
+          style: TextStyle(
+            fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+            color: on ? Pal.accent : null,
+          ),
+        ),
+        trailing: Text(
+          '$count',
+          style: TextStyle(color: _muted(context), fontSize: 13),
+        ),
+        leading: Icon(
+          on ? Icons.check_circle_rounded : Icons.circle_outlined,
+          size: 20,
+          color: on ? Pal.accent : _muted(context),
+        ),
+        onTap: () => Navigator.of(context).pop(value),
+      );
+    }
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.6,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(bottom: 12),
+          children: [
+            tile('Todos los deportes', total, '', selected == null),
+            for (final s in sports)
+              tile(s.name, s.count, s.name, selected == s.name),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Ventana con las opciones (enlaces) de un evento, una debajo de la otra.
+Future<void> _showSources(BuildContext context, LiveEvent e) async {
+  final picked = await showModalBottomSheet<int>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: _cardColor(context),
+    builder: (ctx) {
+      final k = e.kickoff;
+      final sub = [
+        e.league,
+        if (k != null && !e.timeTbc) '${_dayLabel(k)} ${fmtHm(k)}',
+      ].where((x) => x.isNotEmpty).join(' · ');
+      return SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.65,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (sub.isNotEmpty)
+                      Text(
+                        sub,
+                        style: TextStyle(fontSize: 12, color: _muted(ctx)),
+                      ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: e.links.length,
+                  separatorBuilder: (context, i) =>
+                      const Divider(height: 1, indent: 20, endIndent: 20),
+                  itemBuilder: (context, i) => ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: CircleAvatar(
+                      radius: 12,
+                      backgroundColor: Pal.accent.withValues(alpha: 0.16),
+                      child: Text(
+                        '${i + 1}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Pal.accent,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      e.links[i].label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    trailing: const Icon(
+                      Icons.play_circle_fill_rounded,
+                      color: Pal.accent,
+                    ),
+                    onTap: () => Navigator.of(ctx).pop(i),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+  if (picked == null || !context.mounted) return;
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => LivePlayerPage(event: e, initialIndex: picked),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Inicio (pestaña Eventos)
 // ---------------------------------------------------------------------------
@@ -1678,6 +1952,7 @@ class _EventsHomeState extends State<EventsHome> {
   String? _error;
   List<LiveEvent> _events = const <LiveEvent>[];
   _Quick _quick = _Quick.all;
+  String? _sport; // null = todos los deportes
 
   @override
   void initState() {
@@ -1726,6 +2001,18 @@ class _EventsHomeState extends State<EventsHome> {
     }
   }
 
+  Future<void> _pickSport(List<_SportCount> sports) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: _cardColor(context),
+      builder: (ctx) => _SportSheet(sports: sports, selected: _sport),
+    );
+    if (!mounted || picked == null) return;
+    // '' = «todos los deportes».
+    setState(() => _sport = picked.isEmpty ? null : picked);
+  }
+
   String _emptyText() {
     switch (_quick) {
       case _Quick.all:
@@ -1734,8 +2021,8 @@ class _EventsHomeState extends State<EventsHome> {
         return 'No hay partidos en vivo ahora.';
       case _Quick.today:
         return 'No hay más eventos para hoy.';
-      case _Quick.tomorrow:
-        return 'Todavía no hay eventos para mañana.';
+      case _Quick.upcoming:
+        return 'No hay eventos a partir del ${fmtDm(DateTime.now().add(const Duration(days: 2)))}.';
     }
   }
 
@@ -1747,7 +2034,15 @@ class _EventsHomeState extends State<EventsHome> {
     if (_error != null) {
       return _ErrorView(error: _error!, onRetry: _load);
     }
-    final base = _homeEvents(_events);
+    final all = _homeEvents(_events);
+    final sports = _sportCounts(all);
+    // Si el deporte elegido ya no tiene eventos, se vuelve a «todos».
+    if (_sport != null && !sports.any((s) => s.name == _sport)) {
+      _sport = null;
+    }
+    final base = _sport == null
+        ? all
+        : all.where((e) => e.sport.trim() == _sport).toList();
     final shown = _applyQuick(base, _quick);
     int count(_Quick q) => _applyQuick(base, q).length;
     return Column(
@@ -1781,11 +2076,15 @@ class _EventsHomeState extends State<EventsHome> {
                 onTap: () => setState(() => _quick = _Quick.today),
               ),
               _QuickChip(
-                label: 'Mañana',
-                count: count(_Quick.tomorrow),
-                icon: Icons.schedule_rounded,
-                selected: _quick == _Quick.tomorrow,
-                onTap: () => setState(() => _quick = _Quick.tomorrow),
+                label: 'Próximos',
+                count: count(_Quick.upcoming),
+                icon: Icons.event_rounded,
+                selected: _quick == _Quick.upcoming,
+                onTap: () => setState(() => _quick = _Quick.upcoming),
+              ),
+              _SportChip(
+                sport: _sport,
+                onTap: () => _pickSport(sports),
               ),
             ],
           ),

@@ -75,6 +75,27 @@ function contains_ci(string $haystack, string $needle): bool
         : stripos($haystack, $needle) !== false;
 }
 
+/** ¿Valor de escudo válido? URL http(s) o una imagen ya subida (uploads/logos/…). */
+function logo_value_ok(string $v): bool
+{
+    return csv_clean_url($v) !== '' || preg_match('#^uploads/logos/[a-z0-9-]+\.(png|jpg|webp|gif)$#', $v) === 1;
+}
+
+/** [clave => nombre] de los equipos que aparecen en los eventos. */
+function known_team_names(PDO $pdo): array
+{
+    $out = [];
+    $sql = "SELECT home AS t FROM manual_events WHERE away <> '' UNION SELECT away FROM manual_events WHERE away <> ''";
+    foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN) as $name) {
+        $name = trim((string)$name);
+        $key = team_key($name);
+        if ($key !== '' && !isset($out[$key])) {
+            $out[$key] = $name;
+        }
+    }
+    return $out;
+}
+
 /** Vista pedida (cualquier valor desconocido cae en la lista de eventos). */
 function admin_view(): string
 {
@@ -201,7 +222,7 @@ function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
           <label>Escudo local (URL, opcional)<input name="home_logo" value="<?= h((string)($v['home_logo'] ?? '')) ?>" maxlength="500" placeholder="https://…/escudo.png"></label>
           <label>Escudo visitante (URL, opcional)<input name="away_logo" value="<?= h((string)($v['away_logo'] ?? '')) ?>" maxlength="500" placeholder="https://…/escudo.png"></label>
         </div>
-        <p class="mut" style="margin-top:-4px">Si dejas un escudo vacío se usa el guardado para ese equipo en <a class="link" href="?v=logos">Escudos</a>.</p>
+        <p class="mut" style="margin-top:-4px">El escudo que pegues se guarda para ese equipo y se usa en todos sus partidos (presentes y futuros). Para subir imágenes ve a <a class="link" href="?v=logos">Escudos</a>.</p>
         <label>Título (opcional; si lo dejas vacío se usa «Local vs Visitante»)<input name="title" value="<?= h((string)($v['title'] ?? '')) ?>" maxlength="200"></label>
         <div class="grid">
           <label>Inicio<input type="datetime-local" name="start" id="start-<?= h($uid) ?>" value="<?= h((string)($v['start'] ?? '')) ?>" required></label>
@@ -382,6 +403,63 @@ if ($method === 'POST' && !$fatal) {
                 go($back);
                 break;
 
+            case 'add_many':
+                if (!valid_event_id($eid)) {
+                    flash('bad', 'Evento inválido.');
+                    go();
+                }
+                $referer = trim((string)($_POST['referer'] ?? ''));
+                $ua = trim((string)($_POST['user_agent'] ?? ''));
+                if (($referer !== '' && (strlen($referer) > 500 || !preg_match('#^https?://\S+$#i', $referer)))
+                    || strlen($ua) > 300 || preg_match('/[\r\n]/', $ua)) {
+                    flash('bad', 'El Referer o el User-Agent no son válidos.');
+                    go($back);
+                }
+                $st = $pdo->prepare('SELECT COUNT(*) FROM event_sources WHERE event_id = ?');
+                $st->execute([$eid]);
+                $n = (int)$st->fetchColumn();
+                $kick = (int)($_POST['kickoff'] ?? 0);
+                $ins = $pdo->prepare(
+                    'INSERT INTO event_sources (event_id, label, url, referer, user_agent, sort_order, active, home, away, league, kickoff)
+                     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                );
+                $added = 0;
+                $skipped = 0;
+                foreach (preg_split('/\r\n|\r|\n/', (string)($_POST['bulk'] ?? '')) ?: [] as $line) {
+                    $line = trim($line);
+                    if ($line === '') {
+                        continue;
+                    }
+                    $label = '';
+                    $url = $line;
+                    if (strpos($line, '|') !== false) {
+                        [$label, $url] = array_map('trim', explode('|', $line, 2));
+                    }
+                    if (strlen($label) > 60 || strlen($url) > 1000 || !preg_match('#^https?://\S+$#i', $url)) {
+                        $skipped++;
+                        continue;
+                    }
+                    if ($n >= 10) {
+                        $skipped++;
+                        continue;
+                    }
+                    $ins->execute([
+                        $eid, $label !== '' ? $label : 'Fuente ' . ($n + 1), $url,
+                        $referer !== '' ? $referer : null, $ua !== '' ? $ua : null, $n,
+                        substr(trim((string)($_POST['home'] ?? '')), 0, 120),
+                        substr(trim((string)($_POST['away'] ?? '')), 0, 120),
+                        substr(trim((string)($_POST['league'] ?? '')), 0, 160),
+                        $kick > 0 ? $kick : null,
+                    ]);
+                    $n++;
+                    $added++;
+                }
+                flash($added > 0 ? 'ok' : 'bad', $added > 0
+                    ? 'Enlaces agregados: ' . $added . ($skipped > 0 ? ' (' . $skipped . ' omitidos: URL inválida o tope de 10 por evento)' : '') . '.'
+                    : 'No se agregó ninguno: revisa que cada línea sea una URL http(s) (o «Nombre | URL»).');
+                go($back);
+                break;
+
             case 'save':
             case 'toggle':
             case 'delete':
@@ -434,6 +512,17 @@ if ($method === 'POST' && !$fatal) {
                 if ($f['err'] !== null) {
                     flash('bad', $f['err']);
                     go($errGo);
+                }
+                // Los escudos de equipos quedan guardados para todos sus partidos (presentes y futuros).
+                if ($f['away'] !== '') {
+                    if ($f['home_logo'] !== '') {
+                        remember_team_logo($pdo, $f['home'], $f['home_logo']);
+                        $f['home_logo'] = '';
+                    }
+                    if ($f['away_logo'] !== '') {
+                        remember_team_logo($pdo, $f['away'], $f['away_logo']);
+                        $f['away_logo'] = '';
+                    }
                 }
                 if ($mid > 0) {
                     $chk = $pdo->prepare('SELECT COUNT(*) FROM manual_events WHERE id = ?');
@@ -521,13 +610,26 @@ if ($method === 'POST' && !$fatal) {
             case 'logos_save':
                 $names = (array)($_POST['name'] ?? []);
                 $urls = (array)($_POST['url'] ?? []);
+                $files = $_FILES['file'] ?? null;
                 $saved = 0;
                 $del = $pdo->prepare('DELETE FROM team_logos WHERE name_key = ?');
-                $put = $pdo->prepare('REPLACE INTO team_logos (name_key, name, url) VALUES (?, ?, ?)');
                 foreach ($names as $i => $nm) {
                     $nm = trim((string)$nm);
                     $key = team_key($nm);
                     if ($key === '') {
+                        continue;
+                    }
+                    // Imagen subida desde el teléfono / PC.
+                    if (is_array($files) && (int)($files['error'][$key] ?? 4) === UPLOAD_ERR_OK) {
+                        $r = save_team_logo_upload($pdo, $nm, [
+                            'tmp_name' => $files['tmp_name'][$key], 'error' => $files['error'][$key], 'size' => $files['size'][$key],
+                        ]);
+                        if ($r['ok']) {
+                            remember_team_logo($pdo, $nm, $r['url']);
+                            $saved++;
+                        } else {
+                            flash('bad', '«' . $nm . '»: ' . $r['error']);
+                        }
                         continue;
                     }
                     $raw = trim((string)($urls[$i] ?? ''));
@@ -535,16 +637,41 @@ if ($method === 'POST' && !$fatal) {
                         $del->execute([$key]);
                         continue;
                     }
-                    $url = csv_clean_url($raw);
-                    if ($url === '') {
+                    if (!logo_value_ok($raw)) {
                         flash('bad', 'Escudo de «' . $nm . '» ignorado: no es una URL http(s) válida.');
                         continue;
                     }
-                    $put->execute([$key, substr($nm, 0, 120), $url]);
+                    remember_team_logo($pdo, $nm, $raw);
                     $saved++;
                 }
-                flash('ok', 'Escudos guardados: ' . $saved . '.');
+                flash('ok', 'Escudos guardados: ' . $saved . '. Quedan para todos los partidos de esos equipos.');
                 go('v=logos&q=' . rawurlencode((string)($_POST['q'] ?? '')));
+                break;
+
+            case 'logos_bulk':
+                // Varias imágenes a la vez: el nombre del archivo es el del equipo (Chelsea.png).
+                $b = $_FILES['bulk'] ?? null;
+                $known = known_team_names($pdo);
+                $ok = 0;
+                $total = is_array($b['name'] ?? null) ? count($b['name']) : 0;
+                for ($i = 0; $i < $total; $i++) {
+                    if ((int)$b['error'][$i] === UPLOAD_ERR_NO_FILE) {
+                        continue;
+                    }
+                    $team = trim((string)preg_replace('/[_\-]+/', ' ', pathinfo((string)$b['name'][$i], PATHINFO_FILENAME)));
+                    $team = $known[team_key($team)] ?? $team;
+                    $r = save_team_logo_upload($pdo, $team, [
+                        'tmp_name' => $b['tmp_name'][$i], 'error' => $b['error'][$i], 'size' => $b['size'][$i],
+                    ]);
+                    if ($r['ok']) {
+                        remember_team_logo($pdo, $team, $r['url']);
+                        $ok++;
+                    } else {
+                        flash('bad', (string)$b['name'][$i] . ': ' . $r['error']);
+                    }
+                }
+                flash($ok > 0 ? 'ok' : 'bad', $ok > 0 ? 'Escudos subidos: ' . $ok . '. Ya quedan guardados para esos equipos.' : 'No se subió ninguna imagen.');
+                go('v=logos');
                 break;
 
             case 'logos_csv':
@@ -824,6 +951,26 @@ if ($fatal) {
           </form>
           <p class="mut">Referer y User-Agent solo hacen falta si el servidor del stream los exige. El Chromecast no puede enviarlos, así que esas fuentes se verán en el teléfono pero quizá no al transmitir.</p>
         </div>
+
+        <div class="card">
+          <h2>Agregar varios enlaces a la vez</h2>
+          <form method="post">
+            <?= $hidden ?>
+            <input type="hidden" name="home" value="<?= h($home) ?>">
+            <input type="hidden" name="away" value="<?= h($away) ?>">
+            <input type="hidden" name="league" value="<?= h($league) ?>">
+            <input type="hidden" name="kickoff" value="<?= (int)$kick ?>">
+            <label>Un enlace por línea: <code>Nombre | URL</code> (el nombre es opcional)
+              <textarea name="bulk" rows="5" placeholder="Fuente HD | https://…/hd/index.m3u8&#10;Fuente SD | https://…/sd/index.m3u8&#10;https://…/otra.m3u8" style="width:100%"></textarea>
+            </label>
+            <div class="grid">
+              <label>Referer común (opcional)<input name="referer" maxlength="500"></label>
+              <label>User-Agent común (opcional)<input name="user_agent" maxlength="300"></label>
+            </div>
+            <div class="actions"><button name="a" value="add_many">Agregar todos</button></div>
+          </form>
+          <p class="mut">Hasta 10 enlaces por evento. En la app, al tocar el evento se abre una ventana con todas las opciones una debajo de la otra.</p>
+        </div>
         <?php
     } elseif ($view === 'linked') {
         // ---- Eventos con enlaces ---------------------------------------------
@@ -1028,22 +1175,33 @@ if ($fatal) {
         </div>
         <div class="card">
           <h2>Escudos (<?= count($teams) ?> equipos · <?= $missing ?> sin escudo)</h2>
-          <p class="mut">Pega la URL del escudo de cada equipo una sola vez y se usa en todos sus partidos. Un escudo cargado en un evento puntual tiene prioridad. Los equipos sin escudo se ven con sus iniciales en la app. Vacía una URL para quitar el escudo.<?= count($list) > 150 ? ' Se muestran 150; usa el buscador para ver otros.' : '' ?></p>
+          <p class="mut">Sube o pega el escudo de cada equipo <b>una sola vez</b>: queda guardado y se usa en todos sus partidos, los de hoy y los futuros (también los que importes después). Lo que cargues en un evento también se guarda para ese equipo. Los equipos sin escudo se ven con sus iniciales en la app. Vacía una URL para quitar el escudo.<?= count($list) > 150 ? ' Se muestran 150; usa el buscador para ver otros.' : '' ?></p>
           <?php if (!$shown): ?><p class="mut">Todavía no hay equipos: importa un CSV o crea un evento.</p><?php else: ?>
-          <form method="post">
+          <form method="post" enctype="multipart/form-data">
             <?= csrf_field() ?>
             <input type="hidden" name="a" value="logos_save">
             <input type="hidden" name="q" value="<?= h($q) ?>">
             <?php foreach ($shown as $t): ?>
               <div class="row" style="cursor:default">
-                <span class="t" style="width:44px"><?php if ($t['url'] !== ''): ?><img src="<?= h($t['url']) ?>" alt="" width="32" height="32" style="object-fit:contain" referrerpolicy="no-referrer"><?php endif; ?></span>
-                <span class="m" style="flex:0 0 200px"><b><?= h($t['name']) ?></b><input type="hidden" name="name[]" value="<?= h($t['name']) ?>"></span>
-                <span class="m"><input name="url[]" value="<?= h($t['url']) ?>" maxlength="500" placeholder="https://…/escudo.png" style="margin-top:0"></span>
+                <span class="t" style="width:44px"><?php if ($t['url'] !== ''): ?><img src="<?= h(strncmp($t['url'], 'uploads/', 8) === 0 ? '../' . $t['url'] : $t['url']) ?>" alt="" width="32" height="32" style="object-fit:contain" referrerpolicy="no-referrer"><?php endif; ?></span>
+                <span class="m" style="flex:0 0 170px"><b><?= h($t['name']) ?></b><input type="hidden" name="name[]" value="<?= h($t['name']) ?>"></span>
+                <span class="m"><input name="url[]" value="<?= h($t['url']) ?>" maxlength="500" placeholder="URL del escudo, o sube una imagen →" style="margin-top:0"></span>
+                <span class="m" style="flex:0 0 190px"><input type="file" name="file[<?= h(team_key($t['name'])) ?>]" accept="image/png,image/jpeg,image/webp,image/gif" style="margin-top:0"></span>
               </div>
             <?php endforeach; ?>
             <div class="actions" style="margin-top:14px"><button type="submit">Guardar escudos</button></div>
           </form>
           <?php endif; ?>
+        </div>
+        <div class="card" style="max-width:720px">
+          <h2>Subir varias imágenes a la vez</h2>
+          <p class="mut">Elige muchas imágenes (PNG, JPG, WEBP o GIF, hasta 1,5 MB cada una) <b>con el nombre del equipo como nombre de archivo</b>: <code>Chelsea.png</code>, <code>Real Madrid.png</code>… Cada una queda guardada para ese equipo.</p>
+          <form method="post" enctype="multipart/form-data">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="logos_bulk">
+            <label>Imágenes<input type="file" name="bulk[]" accept="image/png,image/jpeg,image/webp,image/gif" multiple required></label>
+            <div class="actions"><button type="submit">Subir escudos</button></div>
+          </form>
         </div>
         <div class="card" style="max-width:720px">
           <h2>Importar escudos desde CSV</h2>
@@ -1069,9 +1227,9 @@ $view = admin_view();
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.18" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.18">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.18">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.20" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.20">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.20">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -1094,8 +1252,8 @@ $view = admin_view();
   .ok { color:var(--accent); } .bad { color:var(--bad); }
   code { background:#0b1420; border:1px solid var(--line); border-radius:7px; padding:3px 7px; word-break:break-all; font-size:12px; }
   label { display:block; font-size:12px; color:#a9b8cc; margin:0 0 12px; }
-  input { display:block; width:100%; margin-top:6px; background:#0a1421; color:var(--txt); border:1px solid #2b3c53; border-radius:10px; padding:11px 12px; font-size:14px; outline:none; transition:border-color .18s,box-shadow .18s; }
-  input:focus { border-color:var(--accent2); box-shadow:0 0 0 3px rgba(112,223,176,.12); }
+  input, textarea { display:block; width:100%; margin-top:6px; background:#0a1421; color:var(--txt); border:1px solid #2b3c53; border-radius:10px; padding:11px 12px; font-size:14px; outline:none; font-family:inherit; transition:border-color .18s,box-shadow .18s; }
+  input:focus, textarea:focus { border-color:var(--accent2); box-shadow:0 0 0 3px rgba(112,223,176,.12); }
   select { display:block; width:100%; margin-top:6px; background:#0a1421; color:var(--txt); border:1px solid #2b3c53; border-radius:10px; padding:11px 12px; font-size:14px; outline:none; }
   select:focus { border-color:var(--accent2); box-shadow:0 0 0 3px rgba(112,223,176,.12); }
   input.auto-end { border-style:dashed; opacity:.75; }
@@ -1137,7 +1295,7 @@ $view = admin_view();
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.18" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.20" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
       <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new', 'event'], true) ? 'on' : '' ?>">Eventos</a>

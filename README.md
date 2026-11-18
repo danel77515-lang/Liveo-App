@@ -9,6 +9,27 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.20
+- **Filtros del inicio:** `Todos · En vivo · Hoy · Próximos` (Próximos = desde pasado mañana, p. ej. 20/11) y un
+  nuevo **filtro de deportes** (chip «Deporte»), con los deportes que haya en el calendario.
+- **Tarjeta:** debajo de la hora va la fecha (`20/11`), nunca «Mañana»; barra separadora entre la hora y los
+  escudos; señal «EN VIVO» y cuenta regresiva un poco más chicas.
+- **Cuenta regresiva:** con días de por medio muestra «Comienza en 2 días»; recién el mismo día pasa a la cuenta
+  en horas · minutos · segundos (nunca los 4 casilleros).
+- **Escudos que se guardan para siempre:** súbelos o pégalos una vez (en `admin/ → Escudos`, o en un evento, o en el
+  CSV) y quedan para todos los partidos de ese equipo. Se pueden **subir imágenes** (por equipo o muchas a la vez,
+  con el nombre del equipo como nombre de archivo: `Chelsea.png`). Se guardan en `backend/uploads/logos/`.
+- **Varios enlaces por evento:** nuevo cuadro «Agregar varios enlaces a la vez» (una línea por enlace:
+  `Nombre | URL`). En la app, al tocar un evento con 2 o más enlaces se abre una **ventana con las opciones** una
+  debajo de la otra; con un solo enlace abre directo el reproductor.
+- **Reproductor en vertical:** se abre en vertical (video arriba; título y opciones debajo). Pasar a horizontal
+  es opcional con el botón de pantalla completa.
+
+## Cambios 1.0.19
+- Tarjeta de evento **más compacta**: sin ícono de deporte, escudos y nombres con más espacio, cuenta regresiva
+  más chica y **«EN VIVO» con la señal (ondas) al lado, en la misma línea**.
+- La cuenta regresiva **oculta los días cuando ya falta menos de 24 h** (queda HRS · MIN · SEG).
+
 ## Cambios 1.0.18
 - **RockyLive eliminado por completo** (API, panel, app y documentación): ya no hay publicidades de terceros ni
   reproductor web. Los eventos son propios: se cargan a mano o **subiendo un CSV** en `admin/ → Importar CSV`.

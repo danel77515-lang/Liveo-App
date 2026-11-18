@@ -15,9 +15,12 @@ import 'theme.dart';
 /// Minimalista: video a pantalla completa en horizontal, controles que se
 /// ocultan solos, selector de fuentes, imagen en imagen (PiP) y Chromecast.
 class LivePlayerPage extends StatefulWidget {
-  const LivePlayerPage({super.key, required this.event});
+  const LivePlayerPage({super.key, required this.event, this.initialIndex = 0});
 
   final LiveEvent event;
+
+  /// Fuente con la que arranca (la elegida en la ventana de opciones).
+  final int initialIndex;
 
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
@@ -26,6 +29,7 @@ class LivePlayerPage extends StatefulWidget {
 class _LivePlayerPageState extends State<LivePlayerPage> {
   VideoPlayerController? _vc;
   int _index = 0;
+  bool _landscape = false; // arranca en vertical; horizontal es opcional
   int _gen = 0;
   bool _controls = true;
   bool _starting = true;
@@ -48,7 +52,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     super.initState();
     NativeBridge.ensureInit();
     NativeBridge.inPip.addListener(_onPip);
-    ScreenMode.landscape();
+    ScreenMode.portrait();
     NativeBridge.keepScreenOn(true);
     SharedPreferences.getInstance().then((p) {
       if (mounted) {
@@ -63,7 +67,15 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         }
       });
     }
-    _open(0);
+    final start = widget.initialIndex;
+    _open(start >= 0 && start < _links.length ? start : 0);
+  }
+
+  Future<void> _toggleOrientation() async {
+    final on = !_landscape;
+    setState(() => _landscape = on);
+    await ScreenMode.setLandscape(on);
+    _showControls();
   }
 
   @override
@@ -401,31 +413,125 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     final buffering = !_casting &&
         _error == null &&
         (_starting || (v?.isBuffering ?? false));
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: pip ? null : _toggleControls,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _video(),
-            if (buffering)
-              const Center(
-                child: SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    color: Colors.white70,
-                  ),
+    final player = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: pip ? null : _toggleControls,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _video(),
+          if (buffering)
+            const Center(
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white70,
                 ),
               ),
-            if (_error != null && !_casting && !pip) _errorView(),
-            if (_casting && !pip) _castView(),
-            if (!pip) _controlsLayer(),
+            ),
+          if (_error != null && !_casting && !pip) _errorView(),
+          if (_casting && !pip) _castView(),
+          if (!pip) _controlsLayer(),
+        ],
+      ),
+    );
+    // Imagen en imagen o pantalla completa horizontal: solo el video.
+    if (pip || _landscape) {
+      return Scaffold(backgroundColor: Colors.black, body: player);
+    }
+    // Vertical (por defecto): video arriba e información y fuentes debajo.
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B0F14),
+      body: Column(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ColoredBox(color: Colors.black, child: player),
+            ),
+          ),
+          Expanded(child: _infoPanel()),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoPanel() {
+    final e = widget.event;
+    final k = e.kickoff;
+    final sub = [
+      e.league,
+      if (k != null && !e.timeTbc) '${fmtDm(k)} · ${fmtHm(k)}',
+    ].where((x) => x.isNotEmpty).join(' · ');
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            e.title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (sub.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              sub,
+              style: const TextStyle(color: Colors.white60, fontSize: 13),
+            ),
           ],
-        ),
+          if (_links.length > 1) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'OPCIONES',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var i = 0; i < _links.length; i++)
+                  ChoiceChip(
+                    label: Text(_links[i].label),
+                    selected: i == _index,
+                    showCheckmark: false,
+                    selectedColor: Pal.accent.withValues(alpha: 0.25),
+                    backgroundColor: Colors.white10,
+                    side: BorderSide(
+                      color: i == _index ? Pal.accent : Colors.white24,
+                    ),
+                    labelStyle: TextStyle(
+                      color: i == _index ? Pal.accent : Colors.white70,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    onSelected: (_) => _selectSource(i),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: _toggleOrientation,
+            icon: const Icon(Icons.fullscreen_rounded),
+            label: const Text('Pantalla completa (horizontal)'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: Colors.white24),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -676,6 +782,17 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                   letterSpacing: 0.8,
                 ),
               ),
+            ),
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: _toggleOrientation,
+            child: Icon(
+              _landscape
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
+              color: Colors.white,
+              size: 26,
             ),
           ),
         ],
