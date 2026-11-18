@@ -12,20 +12,36 @@ void main() {
       'kickoff': 1700000000,
       'live': true,
       'score': '1 - 0',
-      'embed_url': 'https://example.com/embed/1',
     });
     expect(e.league, 'Liga');
     expect(e.home, 'Local FC');
     expect(e.live, isTrue);
     expect(e.score, '1 - 0');
     expect(e.kickoff, isNotNull);
-    expect(e.embedUrl, 'https://example.com/embed/1');
   });
 
-  test('LiveEvent.fromJson descarta embeds no http(s)', () {
-    final e = LiveEvent.fromJson({'embed_url': 'javascript:alert(1)'});
-    expect(e.embedUrl, isNull);
-    expect(e.home, 'Local');
+  test('LiveEvent.fromJson lee deporte, escudos y hora a confirmar', () {
+    final e = LiveEvent.fromJson({
+      'id': 'manual-1',
+      'sport': 'Fútbol',
+      'home': 'Chelsea',
+      'away': 'Leeds United',
+      'home_logo': 'https://x.test/chelsea.png',
+      'away_logo': 'javascript:alert(1)',
+      'time_tbc': true,
+      'live': false,
+    });
+    expect(e.sport, 'Fútbol');
+    expect(e.homeLogo, 'https://x.test/chelsea.png');
+    expect(e.awayLogo, isNull);
+    expect(e.timeTbc, isTrue);
+  });
+
+  test('sportIcon reconoce los deportes del calendario', () {
+    expect(sportIcon('Fútbol americano', 'NFL'), Icons.sports_football_rounded);
+    expect(sportIcon('Motociclismo', 'MotoGP'), Icons.two_wheeler_rounded);
+    expect(sportIcon('Ciclismo', 'UCI WorldTour'), Icons.directions_bike_rounded);
+    expect(sportIcon('Fútbol', 'Premier League'), Icons.sports_soccer_rounded);
   });
 
   test('LiveEvent.fromJson lee el minuto del partido', () {
@@ -56,10 +72,9 @@ void main() {
     expect(e.links.first.label, 'HD');
     expect(e.links.first.needsHeaders, isTrue);
     expect(e.playable, isTrue);
-    expect(e.embedUrl, isNull);
   });
 
-  test('Un evento sin enlaces ni embed no es reproducible', () {
+  test('Un evento sin enlaces no es reproducible', () {
     final e = LiveEvent.fromJson({'id': 'e2'});
     expect(e.links, isEmpty);
     expect(e.playable, isFalse);

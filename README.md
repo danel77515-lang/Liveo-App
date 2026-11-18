@@ -1,6 +1,6 @@
 # Liveo
 
-Aplicación Android (Flutter) + API PHP para XAMPP. Proveedor de eventos y señales: RockyLive (https://rockylive.st/api/).
+Aplicación Android (Flutter) + API PHP para XAMPP. Los eventos se cargan a mano o con un **CSV** desde el panel de administración; las señales son enlaces m3u8 que agregas a cada evento.
 
 ```
 Liveo/
@@ -9,17 +9,24 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
-## Cambios 1.0.16
-- **Matchora eliminado por completo** (API, panel, app y documentación). El proveedor ahora es la
-  **RockyLive API** (`https://rockylive.st/api/events.php?limit=1000`, sin clave).
-- Quedan excluidos: canales 24/7 (incluidos NFL Network y NFL RedZone), darts, WWE, College Basketball,
-  NBL, Allsvenskan y NHL (además del resto de competiciones que ya estaban excluidas).
-- Los ids de RockyLive se guardan como `rl-<id>`; los enlaces m3u8 y favoritos asociados a eventos de
-  Matchora ya no aplican a los eventos nuevos. Se limpia la caché del proveedor anterior.
-- La API ya no tiene `/api/channels` (RockyLive solo ofrece canales 24/7, que están excluidos).
-- Como RockyLive no informa estado ni marcador, "en vivo" se calcula por la hora de inicio y una
-  duración según el deporte; después el evento figura como Finalizado.
-- Eventos sin equipos (p. ej. sesiones de Fórmula 1) se muestran solo con su título.
+## Cambios 1.0.17
+- **RockyLive eliminado por completo** (API, panel, app y documentación): ya no hay publicidades de terceros ni
+  reproductor web. Los eventos son propios: se cargan a mano o **subiendo un CSV** en `admin/ → Importar CSV`.
+- **Importar CSV**: acepta el formato del calendario (`fecha, hora_Argentina_ART, deporte, competicion, evento…`);
+  «A vs B» se separa en local y visitante; sin hora queda como **hora a confirmar**. Volver a subir el CSV
+  actualiza los eventos sin duplicarlos y conserva estado, minuto, visibilidad y enlaces. Hay plantilla descargable.
+  Columnas opcionales: `escudo_local`, `escudo_visitante`, `estado`, `minuto`.
+- **Minuto asociado a cada evento**: en el evento (panel) → *Control en vivo* (estado + minuto). La app lo muestra
+  en rojo debajo de la hora, solo mientras está en vivo.
+- **Escudos**: por evento (URL) o una sola vez por equipo en `admin/ → Escudos` (también por CSV `equipo,escudo`).
+  Sin escudo se muestran las iniciales del equipo.
+- **Nueva tarjeta**: competición arriba + barra separadora; hora, ícono del deporte, escudos y rivales uno
+  debajo del otro; y del otro lado de la barra la **cuenta regresiva (días · horas · minutos · segundos)**.
+  Al empezar pasa a **EN VIVO** con la animación de ondas. **Toda la tarjeta abre el reproductor.**
+- Nuevo endpoint `GET /api/upcoming?days=14` (el inicio carga hoy + 14 días). Se elimina `/api/channels`.
+- Se quita el ajuste «Reproductor» (ya no hay reproductor de tercero) y la dependencia `webview_flutter`.
+- Al actualizar, abre el panel una vez: la base se migra sola (columnas `minute`, `home_logo`, `away_logo`,
+  `time_tbc`, `import_key` y tabla `team_logos`). Los enlaces de eventos `rl-…` se borran.
 
 ## 1. Backend en XAMPP (localhost)
 
@@ -28,7 +35,7 @@ Liveo/
 2. En el panel de XAMPP inicia **Apache** y **MySQL**.
 3. Abre `http://localhost/Liveo/` → verás el panel de diagnóstico.
 4. Pulsa **Instalar base de datos** (o importa `database/liveo.sql` en phpMyAdmin).
-5. Pulsa **Probar proveedor** para confirmar que tu PC alcanza RockyLive.
+5. Entra a `http://localhost/Liveo/admin/` y sube tu CSV en **Importar CSV**.
 
 No hace falta crear `config.local.php` con XAMPP por defecto (root sin contraseña). Si tu MySQL tiene
 contraseña, copia `src/config.local.example.php` a `src/config.local.php` y edítalo.
@@ -41,7 +48,7 @@ URLs finales (IP de tu PC: `192.168.54.109`):
 | Salud | `http://192.168.54.109/Liveo/api/health` |
 | Agenda | `http://192.168.54.109/Liveo/api/schedule` |
 | En vivo | `http://192.168.54.109/Liveo/api/live` |
-| Canales | `http://192.168.54.109/Liveo/api/channels` |
+| Próximos | `http://192.168.54.109/Liveo/api/upcoming?days=14` |
 | Evento | `http://192.168.54.109/Liveo/api/events/{id}` |
 | Favoritos | `http://192.168.54.109/Liveo/api/favorites` (GET/POST/DELETE) |
 | **Administración** | `http://192.168.54.109/Liveo/admin/` |
@@ -54,7 +61,7 @@ URLs finales (IP de tu PC: `192.168.54.109`):
 - Si el router cambia la IP de la PC, reserva esa IP en el router (DHCP) o vuelve a compilar la APK.
 
 ### Problemas típicos
-- **"SSL certificate problem"** en *Probar proveedor*: descarga `https://curl.se/ca/cacert.pem`, guárdalo en
+- **"SSL certificate problem"** al probar un enlace m3u8 desde el panel: descarga `https://curl.se/ca/cacert.pem`, guárdalo en
   `C:\xampp\php\extras\ssl\cacert.pem` y pon `'ca_bundle' => 'C:/xampp/php/extras/ssl/cacert.pem'` en `src/config.local.php`.
 - **404 en `/Liveo/api/health`**: verifica que `mod_rewrite` esté activo y `AllowOverride All` en `httpd.conf` (XAMPP lo trae así).
 

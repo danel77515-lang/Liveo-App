@@ -75,6 +75,13 @@ function contains_ci(string $haystack, string $needle): bool
         : stripos($haystack, $needle) !== false;
 }
 
+/** Vista pedida (cualquier valor desconocido cae en la lista de eventos). */
+function admin_view(): string
+{
+    $v = (string)($_GET['v'] ?? 'manual');
+    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos'], true) ? $v : 'manual';
+}
+
 function valid_event_id(string $id): bool
 {
     return (bool)preg_match('/^[A-Za-z0-9_.:-]{1,80}$/', $id);
@@ -107,7 +114,7 @@ function probe_message(array $r): array
     return [$r['ok'] ? 'ok' : 'bad', ($r['ok'] ? '✔ ' : '✖ ') . $r['note']];
 }
 
-/** Lee y valida los campos de un evento propio del formulario. */
+/** Lee y valida los campos de un evento del formulario. */
 function read_manual_fields(): array
 {
     $f = [
@@ -118,6 +125,10 @@ function read_manual_fields(): array
         'title'      => trim((string)($_POST['title'] ?? '')),
         'start'      => trim((string)($_POST['start'] ?? '')),
         'state_mode' => (string)($_POST['state_mode'] ?? 'auto'),
+        'minute'     => trim((string)($_POST['minute'] ?? '')),
+        'home_logo'  => trim((string)($_POST['home_logo'] ?? '')),
+        'away_logo'  => trim((string)($_POST['away_logo'] ?? '')),
+        'time_tbc'   => !empty($_POST['time_tbc']) ? 1 : 0,
         'start_ts'   => 0,
         'err'        => null,
     ];
@@ -128,8 +139,8 @@ function read_manual_fields(): array
         $f['state_mode'] = 'auto';
     }
     $ts = $f['start'] !== '' ? strtotime($f['start']) : false;
-    if ($f['home'] === '' || $f['away'] === '') {
-        $f['err'] = 'Escribe el equipo local y el visitante.';
+    if ($f['home'] === '') {
+        $f['err'] = 'Escribe el equipo local (o el nombre del evento si no hay rivales).';
     } elseif ($len($f['home']) > 120 || $len($f['away']) > 120) {
         $f['err'] = 'Los nombres de los equipos admiten hasta 120 caracteres.';
     } elseif ($len($f['sport']) > 80) {
@@ -138,10 +149,15 @@ function read_manual_fields(): array
         $f['err'] = 'La competición admite hasta 160 caracteres.';
     } elseif ($len($f['title']) > 200) {
         $f['err'] = 'El título admite hasta 200 caracteres.';
+    } elseif ($len($f['minute']) > 12) {
+        $f['err'] = 'El minuto admite hasta 12 caracteres (ej. 34, 45+2, Descanso).';
+    } elseif (($f['home_logo'] !== '' && csv_clean_url($f['home_logo']) === '') || ($f['away_logo'] !== '' && csv_clean_url($f['away_logo']) === '')) {
+        $f['err'] = 'Los escudos deben ser URLs http(s) válidas (o dejarse vacíos).';
     } elseif ($ts === false || $ts < 946684800 || $ts > 4102444800) {
         $f['err'] = 'Elige una fecha y hora de inicio válidas.';
     } else {
-        $f['start_ts'] = (int)$ts;
+        // Con «hora a confirmar» solo cuenta la fecha (queda a las 00:00).
+        $f['start_ts'] = $f['time_tbc'] ? (int)strtotime(date('Y-m-d', (int)$ts) . ' 00:00:00') : (int)$ts;
     }
     return $f;
 }
@@ -149,7 +165,7 @@ function read_manual_fields(): array
 /** Formulario de alta / edición de un evento propio. */
 function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
 {
-    $sports = ['Fútbol', 'Baloncesto', 'Tenis', 'Béisbol', 'Fútbol americano', 'Rugby', 'Voleibol', 'Automovilismo', 'Boxeo', 'MMA / UFC', 'Hockey', 'Otro'];
+    $sports = ['Fútbol', 'Básquet', 'Tenis', 'Béisbol', 'Fútbol americano', 'Rugby', 'Voleibol', 'Automovilismo', 'Motociclismo', 'Ciclismo', 'Boxeo', 'MMA', 'Hockey', 'Golf', 'Otro'];
     $leagues = [];
     try {
         foreach ($pdo->query("SELECT DISTINCT sport FROM manual_events WHERE sport <> '' ORDER BY id DESC LIMIT 40")->fetchAll(PDO::FETCH_COLUMN) as $x) {
@@ -177,15 +193,25 @@ function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
         <datalist id="sports-<?= h($uid) ?>"><?php foreach ($sports as $x): ?><option value="<?= h((string)$x) ?>"><?php endforeach; ?></datalist>
         <datalist id="leagues-<?= h($uid) ?>"><?php foreach ($leagues as $x): ?><option value="<?= h((string)$x) ?>"><?php endforeach; ?></datalist>
         <div class="grid">
-          <label>Equipo local<input name="home" value="<?= h((string)($v['home'] ?? '')) ?>" maxlength="120" required></label>
-          <label>Equipo visitante<input name="away" value="<?= h((string)($v['away'] ?? '')) ?>" maxlength="120" required></label>
+          <label>Equipo local (o nombre del evento)<input name="home" value="<?= h((string)($v['home'] ?? '')) ?>" maxlength="120" required></label>
+          <label>Equipo visitante<input name="away" value="<?= h((string)($v['away'] ?? '')) ?>" maxlength="120" placeholder="vacío = evento sin rivales (etapa, carrera…)"></label>
         </div>
+        <div class="grid">
+          <label>Escudo local (URL, opcional)<input name="home_logo" value="<?= h((string)($v['home_logo'] ?? '')) ?>" maxlength="500" placeholder="https://…/escudo.png"></label>
+          <label>Escudo visitante (URL, opcional)<input name="away_logo" value="<?= h((string)($v['away_logo'] ?? '')) ?>" maxlength="500" placeholder="https://…/escudo.png"></label>
+        </div>
+        <p class="mut" style="margin-top:-4px">Si dejas un escudo vacío se usa el guardado para ese equipo en <a class="link" href="?v=logos">Escudos</a>.</p>
         <label>Título (opcional; si lo dejas vacío se usa «Local vs Visitante»)<input name="title" value="<?= h((string)($v['title'] ?? '')) ?>" maxlength="200"></label>
         <div class="grid">
           <label>Inicio<input type="datetime-local" name="start" id="start-<?= h($uid) ?>" value="<?= h((string)($v['start'] ?? '')) ?>" required></label>
           <label>Finalización automática<input type="datetime-local" id="end-<?= h($uid) ?>" class="auto-end" disabled>
             <span class="mut">Se calcula automáticamente <?= (int)$dur ?> minutos después del inicio. Puedes cambiar esta duración en <a class="link" href="?v=config">Configuración</a>.</span></label>
         </div>
+        <label style="color:var(--txt)"><input type="checkbox" name="time_tbc" value="1" <?= !empty($v['time_tbc']) ? 'checked' : '' ?>> Hora a confirmar (solo cuenta la fecha; no arranca solo)</label>
+        <div class="grid">
+        <label>Minuto (solo se ve mientras está en vivo)
+          <input name="minute" value="<?= h((string)($v['minute'] ?? '')) ?>" maxlength="12" placeholder="34, 45+2, Descanso">
+        </label>
         <label>Estado
           <select name="state_mode">
             <?php foreach (manual_state_options() as $k => $lab): ?>
@@ -193,6 +219,7 @@ function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
             <?php endforeach; ?>
           </select>
         </label>
+        </div>
         <div class="actions">
           <button type="submit"><?= $mid > 0 ? 'Guardar cambios' : 'Crear evento' ?></button>
         </div>
@@ -302,7 +329,7 @@ if ($method === 'POST' && !$fatal) {
     }
 
     $eid = (string)($_POST['event_id'] ?? '');
-    $back = valid_event_id($eid) ? 'v=event&id=' . rawurlencode($eid) . '&d=' . rawurlencode((string)($_POST['d'] ?? '')) : 'v=home';
+    $back = valid_event_id($eid) ? 'v=event&id=' . rawurlencode($eid) . '&d=' . rawurlencode((string)($_POST['d'] ?? '')) : 'v=manual';
 
     try {
         switch ($a) {
@@ -412,19 +439,121 @@ if ($method === 'POST' && !$fatal) {
                         go('v=manual');
                     }
                     $pdo->prepare(
-                        'UPDATE manual_events SET sport = ?, league = ?, home = ?, away = ?, title = ?, start_ts = ?, state_mode = ? WHERE id = ?'
-                    )->execute([$f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode'], $mid]);
+                        'UPDATE manual_events SET sport = ?, league = ?, home = ?, away = ?, title = ?, start_ts = ?, state_mode = ?,
+                                minute = ?, home_logo = ?, away_logo = ?, time_tbc = ? WHERE id = ?'
+                    )->execute([
+                        $f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode'],
+                        $f['minute'] !== '' ? $f['minute'] : null,
+                        $f['home_logo'] !== '' ? $f['home_logo'] : null,
+                        $f['away_logo'] !== '' ? $f['away_logo'] : null,
+                        $f['time_tbc'], $mid,
+                    ]);
                     unset($_SESSION['manual_prefill']);
                     flash('ok', 'Cambios guardados.');
                     go('v=event&id=manual-' . $mid);
                 }
                 $pdo->prepare(
-                    'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
-                )->execute([$f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode']]);
+                    'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active, minute, home_logo, away_logo, time_tbc)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                )->execute([
+                    $f['sport'], $f['league'], $f['home'], $f['away'], $f['title'], $f['start_ts'], $f['state_mode'],
+                    $f['minute'] !== '' ? $f['minute'] : null,
+                    $f['home_logo'] !== '' ? $f['home_logo'] : null,
+                    $f['away_logo'] !== '' ? $f['away_logo'] : null,
+                    $f['time_tbc'],
+                ]);
                 $newId = (int)$pdo->lastInsertId();
                 unset($_SESSION['manual_prefill']);
                 flash('ok', 'Evento creado. Agrega sus señales en la sección de abajo.');
                 go('v=event&id=manual-' . $newId);
+                break;
+
+            case 'manual_quick':
+                $mid = (int)($_POST['mid'] ?? 0);
+                $mode = (string)($_POST['state_mode'] ?? 'auto');
+                if (!array_key_exists($mode, manual_state_options())) {
+                    $mode = 'auto';
+                }
+                $minute = trim((string)($_POST['minute'] ?? ''));
+                if (strlen($minute) > 12) {
+                    flash('bad', 'El minuto admite hasta 12 caracteres.');
+                    go('v=event&id=manual-' . $mid);
+                }
+                $pdo->prepare('UPDATE manual_events SET state_mode = ?, minute = ? WHERE id = ?')
+                    ->execute([$mode, $minute !== '' ? $minute : null, $mid]);
+                flash('ok', 'Estado y minuto actualizados: ya se reflejan en la app.');
+                go('v=event&id=manual-' . $mid);
+                break;
+
+            case 'csv_import':
+                $up = $_FILES['csv'] ?? null;
+                if (!is_array($up) || (int)($up['error'] ?? 4) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$up['tmp_name'])) {
+                    flash('bad', 'No se recibió el archivo CSV (revisa que no supere el límite de subida de PHP).');
+                    go('v=import');
+                }
+                if ((int)$up['size'] > 5 * 1024 * 1024) {
+                    flash('bad', 'El CSV supera los 5 MB.');
+                    go('v=import');
+                }
+                $readErr = null;
+                $rows = csv_read_rows((string)$up['tmp_name'], $readErr);
+                if (!$rows) {
+                    flash('bad', $readErr ?? 'El CSV no tiene filas con datos.');
+                    go('v=import');
+                }
+                $r = manual_import_rows($pdo, $rows, !empty($_POST['skip_info']));
+                flash('ok', 'Importación lista: ' . $r['new'] . ' nuevos, ' . $r['updated'] . ' actualizados'
+                    . ($r['skipped'] > 0 ? ', ' . $r['skipped'] . ' filas informativas omitidas' : '')
+                    . (count($r['errors']) > 0 ? ', ' . count($r['errors']) . ' con error' : '') . '.');
+                foreach (array_slice($r['errors'], 0, 8) as $line) {
+                    flash('bad', $line);
+                }
+                if ($readErr !== null) {
+                    flash('bad', $readErr);
+                }
+                go('v=manual');
+                break;
+
+            case 'logos_save':
+                $names = (array)($_POST['name'] ?? []);
+                $urls = (array)($_POST['url'] ?? []);
+                $saved = 0;
+                $del = $pdo->prepare('DELETE FROM team_logos WHERE name_key = ?');
+                $put = $pdo->prepare('REPLACE INTO team_logos (name_key, name, url) VALUES (?, ?, ?)');
+                foreach ($names as $i => $nm) {
+                    $nm = trim((string)$nm);
+                    $key = team_key($nm);
+                    if ($key === '') {
+                        continue;
+                    }
+                    $raw = trim((string)($urls[$i] ?? ''));
+                    if ($raw === '') {
+                        $del->execute([$key]);
+                        continue;
+                    }
+                    $url = csv_clean_url($raw);
+                    if ($url === '') {
+                        flash('bad', 'Escudo de «' . $nm . '» ignorado: no es una URL http(s) válida.');
+                        continue;
+                    }
+                    $put->execute([$key, substr($nm, 0, 120), $url]);
+                    $saved++;
+                }
+                flash('ok', 'Escudos guardados: ' . $saved . '.');
+                go('v=logos&q=' . rawurlencode((string)($_POST['q'] ?? '')));
+                break;
+
+            case 'logos_csv':
+                $up = $_FILES['csv'] ?? null;
+                if (!is_array($up) || (int)($up['error'] ?? 4) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$up['tmp_name'])) {
+                    flash('bad', 'No se recibió el archivo CSV.');
+                    go('v=logos');
+                }
+                $readErr = null;
+                $rows = csv_read_rows((string)$up['tmp_name'], $readErr);
+                $n = $rows ? logos_import_rows($pdo, $rows) : 0;
+                flash($n > 0 ? 'ok' : 'bad', $n > 0 ? 'Escudos importados: ' . $n . '.' : 'No se encontró ningún equipo con escudo (columnas «equipo» y «escudo»).');
+                go('v=logos');
                 break;
 
             case 'manual_toggle':
@@ -527,8 +656,19 @@ if ($fatal) {
     </div>
     <?php
 } else {
-    $view = (string)($_GET['v'] ?? 'home');
+    $view = admin_view();
     $date = valid_date((string)($_GET['d'] ?? '')) ? (string)$_GET['d'] : date('Y-m-d');
+
+    // Plantilla CSV descargable.
+    if ($view === 'import' && !empty($_GET['tpl'])) {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="plantilla_liveo.csv"');
+        echo csv_template();
+        exit;
+    }
 
     // ---- Detalle de un evento ---------------------------------------------
     if ($view === 'event' && valid_event_id((string)($_GET['id'] ?? ''))) {
@@ -544,12 +684,6 @@ if ($fatal) {
                 go('v=manual');
             }
             $ev = manual_row_to_event($manualRow, manual_duration_minutes($pdo), time());
-        } else {
-            try {
-                $ev = rockylive_event_by_id($eid);
-            } catch (Throwable $e) {
-                $ev = null;
-            }
         }
         $st = $pdo->prepare('SELECT * FROM event_sources WHERE event_id = ? ORDER BY sort_order ASC, id ASC');
         $st->execute([$eid]);
@@ -560,25 +694,23 @@ if ($fatal) {
         $league = (string)($ev['league'] ?? ($snap['league'] ?? ''));
         $kick = (int)($ev['kickoff'] ?? ($snap['kickoff'] ?? 0));
         $isLive = !empty($ev['live']);
-        $hasEmbed = !empty($ev['embed_url']);
         $pre = $_SESSION['prefill'] ?? [];
         unset($_SESSION['prefill']);
         $hidden = csrf_field()
             . '<input type="hidden" name="event_id" value="' . h($eid) . '">'
             . '<input type="hidden" name="d" value="' . h($date) . '">';
         ?>
-        <p><?php if ($manualRow): ?><a class="link" href="?v=manual">← Volver a los eventos propios</a><?php else: ?><a class="link" href="?v=home&d=<?= h(rawurlencode($date)) ?>">← Volver a los eventos</a><?php endif; ?></p>
+        <p><?php if ($manualRow): ?><a class="link" href="?v=manual">← Volver a los eventos</a><?php else: ?><a class="link" href="?v=manual">← Volver a los eventos</a><?php endif; ?></p>
         <div class="card">
           <h2><?= h($home !== '' ? $home : 'Evento') ?><?php if ($away !== ''): ?> <span class="mut">vs</span> <?= h($away) ?><?php endif; ?></h2>
           <p class="mut"><?= h($league) ?> · <?= h(fmt_ts($kick)) ?>
             <?php if ($isLive): ?> · <span class="tag live">EN VIVO</span><?php endif; ?>
             · ID <code><?= h($eid) ?></code></p>
           <?php if ($manualRow): ?>
-            <p class="mut">Evento propio · estado actual: <b><?= h((string)($ev['status'] ?? '')) ?></b><?= (int)$manualRow['active'] === 1 ? '' : ' · <span class="tag">Oculto en la app</span>' ?>.
+            <p class="mut">Estado actual: <b><?= h((string)($ev['status'] ?? '')) ?></b><?= isset($ev['minute']) ? ' · minuto <b>' . h((string)$ev['minute']) . '</b>' : '' ?><?= (int)$manualRow['active'] === 1 ? '' : ' · <span class="tag">Oculto en la app</span>' ?>.
               Las señales se agregan abajo y la app las usa igual que en cualquier otro evento.</p>
           <?php else: ?>
-          <p class="mut">Reproductor de RockyLive: <?= $hasEmbed ? 'disponible (la app lo usa si el evento no tiene enlaces propios)' : 'sin señal en RockyLive' ?>.
-            <?php if ($ev === null): ?><br>No se encontró el evento en RockyLive; se muestran los datos guardados.<?php endif; ?></p>
+          <p class="mut">Este evento ya no existe en el calendario; se muestran los datos guardados de sus enlaces.</p>
           <?php endif; ?>
         </div>
         <?php
@@ -593,7 +725,35 @@ if ($fatal) {
                 'title'      => (string)$manualRow['title'],
                 'start'      => date('Y-m-d\TH:i', (int)$manualRow['start_ts']),
                 'state_mode' => (string)$manualRow['state_mode'],
+                'minute'     => (string)($manualRow['minute'] ?? ''),
+                'home_logo'  => (string)($manualRow['home_logo'] ?? ''),
+                'away_logo'  => (string)($manualRow['away_logo'] ?? ''),
+                'time_tbc'   => (int)($manualRow['time_tbc'] ?? 0),
             ];
+            ?>
+            <div class="card">
+              <h2>Control en vivo</h2>
+              <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="a" value="manual_quick">
+                <input type="hidden" name="mid" value="<?= (int)$manualRow['id'] ?>">
+                <div class="grid">
+                  <label>Estado
+                    <select name="state_mode">
+                      <?php foreach (manual_state_options() as $k => $lab): ?>
+                        <option value="<?= h($k) ?>" <?= (string)$manualRow['state_mode'] === $k ? 'selected' : '' ?>><?= h($lab) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                  <label>Minuto
+                    <input name="minute" value="<?= h((string)($manualRow['minute'] ?? '')) ?>" maxlength="12" placeholder="34, 45+2, Descanso">
+                  </label>
+                </div>
+                <div class="actions"><button type="submit">Actualizar en la app</button></div>
+              </form>
+              <p class="mut">El minuto se muestra en la tarjeta (en rojo, debajo de la hora) únicamente mientras el evento está en vivo. Vacío = no se muestra minuto.</p>
+            </div>
+            <?php
             echo manual_form_html($pdo, $mv, (int)$manualRow['id'], manual_duration_minutes($pdo));
             ?>
             <div class="card">
@@ -674,7 +834,7 @@ if ($fatal) {
           <?php foreach ($list as $r): ?>
             <a class="row" href="?v=event&id=<?= h(rawurlencode((string)$r['event_id'])) ?>&d=<?= h(rawurlencode($date)) ?>">
               <span class="t"><?= h(fmt_ts($r['kickoff'])) ?></span>
-              <span class="m"><b><?= h($r['home']) ?></b> vs <b><?= h($r['away']) ?></b><small><?= h($r['league']) ?></small></span>
+              <span class="m"><b><?= h($r['home']) ?></b><?php if ((string)$r['away'] !== ''): ?> vs <b><?= h($r['away']) ?></b><?php endif; ?><small><?= h($r['league']) ?></small></span>
               <span class="b"><span class="tag"><?= (int)$r['act'] ?>/<?= (int)$r['n'] ?> activos</span></span>
             </a>
           <?php endforeach; ?>
@@ -685,28 +845,72 @@ if ($fatal) {
         </div>
         <?php
     } elseif ($view === 'manual') {
-        // ---- Eventos propios ---------------------------------------------------
-        $rows = $pdo->query('SELECT * FROM manual_events ORDER BY start_ts DESC LIMIT 300')->fetchAll();
+        // ---- Eventos ---------------------------------------------------------------
+        $f = (string)($_GET['f'] ?? 'up');
+        if (!in_array($f, ['up', 'past', 'all'], true)) {
+            $f = 'up';
+        }
+        $q = trim((string)($_GET['q'] ?? ''));
+        $nowTs = time();
+        $cut = $nowTs - 6 * 3600;
+        $where = [];
+        $par = [];
+        if ($f === 'up') {
+            $where[] = "(start_ts >= ? OR state_mode = 'live')";
+            $par[] = $cut;
+            $order = 'start_ts ASC, id ASC';
+        } elseif ($f === 'past') {
+            $where[] = 'start_ts < ?';
+            $par[] = $cut;
+            $order = 'start_ts DESC, id DESC';
+        } else {
+            $order = 'start_ts DESC, id DESC';
+        }
+        if ($q !== '') {
+            $where[] = '(home LIKE ? OR away LIKE ? OR league LIKE ? OR sport LIKE ?)';
+            for ($i = 0; $i < 4; $i++) {
+                $par[] = '%' . $q . '%';
+            }
+        }
+        $wsql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+        $cnt = $pdo->prepare('SELECT COUNT(*) FROM manual_events' . $wsql);
+        $cnt->execute($par);
+        $total = (int)$cnt->fetchColumn();
+        $st = $pdo->prepare('SELECT * FROM manual_events' . $wsql . ' ORDER BY ' . $order . ' LIMIT 300');
+        $st->execute($par);
+        $rows = $st->fetchAll();
         $linkCounts = [];
         foreach ($pdo->query("SELECT event_id, COUNT(*) AS n, SUM(active) AS act FROM event_sources WHERE event_id LIKE 'manual-%' GROUP BY event_id")->fetchAll() as $r) {
             $linkCounts[(string)$r['event_id']] = [(int)$r['n'], (int)$r['act']];
         }
         $durMin = manual_duration_minutes($pdo);
-        $nowTs = time();
         ?>
         <div class="card">
-          <div class="actions" style="justify-content:space-between">
-            <h2 style="margin:0">Eventos propios (<?= count($rows) ?>)</h2>
-            <a class="btn" href="?v=manual_new">+ Nuevo evento</a>
-          </div>
-          <p class="mut">Eventos que creas tú. Se mezclan con los de RockyLive en la app y admiten enlaces como cualquier otro.</p>
-          <?php if (!$rows): ?><p class="mut">Todavía no creaste ningún evento.</p><?php endif; ?>
+          <form method="get" class="filters">
+            <input type="hidden" name="v" value="manual">
+            <label>Mostrar
+              <select name="f">
+                <option value="up" <?= $f === 'up' ? 'selected' : '' ?>>Próximos y en vivo</option>
+                <option value="past" <?= $f === 'past' ? 'selected' : '' ?>>Pasados</option>
+                <option value="all" <?= $f === 'all' ? 'selected' : '' ?>>Todos</option>
+              </select>
+            </label>
+            <label>Buscar<input type="search" name="q" value="<?= h($q) ?>" placeholder="equipo, liga o deporte"></label>
+            <button type="submit">Filtrar</button>
+            <a class="btn" href="?v=manual_new">+ Nuevo</a>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Eventos (<?= $total ?>)</h2>
+          <p class="mut">Los eventos se cargan a mano o con <a class="link" href="?v=import">Importar CSV</a>. Toca uno para cambiar su estado y minuto, o agregarle enlaces.<?= $total > 300 ? ' Se muestran los primeros 300; usa el buscador para acotar.' : '' ?></p>
+          <?php if (!$rows): ?><p class="mut">No hay eventos para este filtro.</p><?php endif; ?>
           <?php foreach ($rows as $r):
               $e = manual_row_to_event($r, $durMin, $nowTs);
-              $lc = $linkCounts['manual-' . (int)$r['id']] ?? [0, 0]; ?>
+              $lc = $linkCounts['manual-' . (int)$r['id']] ?? [0, 0];
+              $tbc = !empty($r['time_tbc']); ?>
             <a class="row" href="?v=event&id=<?= h(rawurlencode('manual-' . (int)$r['id'])) ?>">
-              <span class="t"><?= !empty($e['live']) ? '<span class="tag live">VIVO</span>' : h(fmt_ts($r['start_ts'])) ?></span>
-              <span class="m"><b><?= h($r['home']) ?></b> vs <b><?= h($r['away']) ?></b><small><?= h(trim($r['sport'] . ($r['sport'] !== '' && $r['league'] !== '' ? ' · ' : '') . $r['league'])) ?></small></span>
+              <span class="t"><?php if (!empty($e['live'])): ?><span class="tag live">VIVO</span><?= isset($e['minute']) ? ' ' . h((string)$e['minute']) . '\'' : '' ?><?php elseif ($tbc): ?><?= h(date('d/m', (int)$r['start_ts'])) ?><br><small>sin hora</small><?php else: ?><?= h(fmt_ts($r['start_ts'])) ?><?php endif; ?></span>
+              <span class="m"><b><?= h($r['home']) ?></b><?php if ((string)$r['away'] !== ''): ?> vs <b><?= h($r['away']) ?></b><?php endif; ?><small><?= h(trim($r['sport'] . ($r['sport'] !== '' && $r['league'] !== '' ? ' · ' : '') . $r['league'])) ?></small></span>
               <span class="b">
                 <span class="tag"><?= h((string)$e['status']) ?></span>
                 <?php if ($lc[0] > 0): ?><span class="tag ok"><?= $lc[1] ?>/<?= $lc[0] ?> enlaces</span><?php else: ?><span class="tag">Sin enlaces</span><?php endif; ?>
@@ -714,12 +918,10 @@ if ($fatal) {
               </span>
             </a>
           <?php endforeach; ?>
-          <?php if ($rows): ?>
           <form method="post" style="margin-top:14px">
             <?= csrf_field() ?>
-            <button name="a" value="manual_purge" class="alt" onclick="return confirm('¿Borrar los eventos propios de hace más de 3 días y sus enlaces?')">Limpiar eventos de hace más de 3 días</button>
+            <button name="a" value="manual_purge" class="alt" onclick="return confirm('¿Borrar los eventos de hace más de 3 días y sus enlaces?')">Limpiar eventos de hace más de 3 días</button>
           </form>
-          <?php endif; ?>
         </div>
         <?php
     } elseif ($view === 'manual_new') {
@@ -729,9 +931,9 @@ if ($fatal) {
         $mv = is_array($mpre) ? $mpre : [
             'sport' => '', 'league' => '', 'home' => '', 'away' => '', 'title' => '',
             'start' => date('Y-m-d\TH:i', (int)(ceil(time() / 900) * 900)),
-            'state_mode' => 'auto',
+            'state_mode' => 'auto', 'minute' => '', 'home_logo' => '', 'away_logo' => '', 'time_tbc' => 0,
         ];
-        echo '<p><a class="link" href="?v=manual">← Volver a los eventos propios</a></p>';
+        echo '<p><a class="link" href="?v=manual">← Volver a los eventos</a></p>';
         echo manual_form_html($pdo, $mv, 0, manual_duration_minutes($pdo));
     } elseif ($view === 'config') {
         // ---- Configuración -------------------------------------------------------
@@ -750,77 +952,103 @@ if ($fatal) {
           </form>
         </div>
         <?php
+    } elseif ($view === 'import') {
+        // ---- Importar CSV ---------------------------------------------------------
+        ?>
+        <div class="card" style="max-width:720px">
+          <h2>Importar eventos desde CSV</h2>
+          <p class="mut">Sube el calendario y los eventos aparecen en la app. Si lo vuelves a subir, los eventos se <b>actualizan</b> (no se duplican) y se conservan el estado, el minuto, la visibilidad y los enlaces que ya cargaste.</p>
+          <form method="post" enctype="multipart/form-data">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="csv_import">
+            <label>Archivo CSV<input type="file" name="csv" accept=".csv,.txt,text/csv" required></label>
+            <label style="color:var(--txt)"><input type="checkbox" name="skip_info" value="1" checked> Omitir filas informativas (ventanas, períodos y jornadas sin partidos concretos)</label>
+            <div class="actions">
+              <button type="submit">Importar</button>
+              <a class="btn alt" href="?v=import&tpl=1">Descargar plantilla</a>
+            </div>
+          </form>
+        </div>
+        <div class="card" style="max-width:720px">
+          <h2>Columnas que entiende</h2>
+          <p class="mut">
+            <b>fecha</b> (AAAA-MM-DD o DD/MM/AAAA) · <b>hora</b> (cualquier columna que empiece con «hora», p. ej. <code>hora_Argentina_ART</code>; vacía = hora a confirmar) ·
+            <b>deporte</b> · <b>competicion</b> · <b>evento</b> («Local vs Visitante»; sin «vs» es un evento de un solo título).<br>
+            Opcionales: <b>local</b>, <b>visitante</b>, <b>escudo_local</b>, <b>escudo_visitante</b> (URLs), <b>estado</b> (auto, programado, en vivo, finalizado, postergado, cancelado) y <b>minuto</b>.
+            Las demás columnas (<code>dia</code>, <code>detalle</code>, <code>fuente</code>…) se ignoran. Las horas se interpretan en <b><?= h((string)liveo_config()['timezone']) ?></b>.
+          </p>
+        </div>
+        <?php
     } else {
-        // ---- Eventos de RockyLive -----------------------------------------------
-        $onlyLive = !empty($_GET['live']);
+        // ---- Escudos por equipo ---------------------------------------------------
         $q = trim((string)($_GET['q'] ?? ''));
-        $events = [];
-        $listError = null;
-        try {
-            $tzAdmin = new DateTimeZone((string)liveo_config()['timezone']);
-            $dayFrom = (new DateTimeImmutable($date . ' 00:00:00', $tzAdmin))->getTimestamp();
-            $dayTo = (new DateTimeImmutable($date . ' 00:00:00', $tzAdmin))->modify('+2 days')->getTimestamp();
-            foreach (rockylive_events() as $event) {
-                $k = (int)($event['kickoff'] ?? 0);
-                $inRange = $onlyLive ? !empty($event['live']) : (!empty($event['live']) || ($k >= $dayFrom && $k < $dayTo));
-                if ($inRange) {
-                    $events[] = $event;
-                }
+        $logoMap = [];
+        foreach ($pdo->query('SELECT name_key, name, url FROM team_logos')->fetchAll() as $r) {
+            $logoMap[(string)$r['name_key']] = ['name' => (string)$r['name'], 'url' => (string)$r['url']];
+        }
+        $teams = [];
+        $sqlTeams = "SELECT home AS t FROM manual_events WHERE away <> '' UNION SELECT away FROM manual_events WHERE away <> ''";
+        foreach ($pdo->query($sqlTeams)->fetchAll(PDO::FETCH_COLUMN) as $name) {
+            $name = trim((string)$name);
+            $key = team_key($name);
+            if ($key !== '' && !isset($teams[$key])) {
+                $teams[$key] = ['name' => $name, 'url' => $logoMap[$key]['url'] ?? ''];
             }
-        } catch (Throwable $e) {
-            $listError = $e->getMessage();
         }
-        if ($q !== '') {
-            $events = array_values(array_filter($events, function ($e) use ($q) {
-                return contains_ci((string)($e['home'] ?? '') . ' ' . (string)($e['away'] ?? '') . ' ' . (string)($e['league'] ?? ''), $q);
-            }));
+        foreach ($logoMap as $key => $l) {
+            if (!isset($teams[$key])) {
+                $teams[$key] = ['name' => $l['name'], 'url' => $l['url']];
+            }
         }
-        usort($events, function ($a, $b) {
-            $la = !empty($a['live']) ? 0 : 1;
-            $lb = !empty($b['live']) ? 0 : 1;
-            return $la <=> $lb ?: ((int)($a['kickoff'] ?? 0) <=> (int)($b['kickoff'] ?? 0));
+        $missing = 0;
+        foreach ($teams as $t) {
+            if ($t['url'] === '') {
+                $missing++;
+            }
+        }
+        $list = array_values(array_filter($teams, function ($t) use ($q) {
+            return $q === '' || contains_ci($t['name'], $q);
+        }));
+        usort($list, function ($a, $b) {
+            return (($a['url'] === '') ? 0 : 1) <=> (($b['url'] === '') ? 0 : 1) ?: strcasecmp($a['name'], $b['name']);
         });
-        $events = array_slice($events, 0, 300);
-
-        $counts = [];
-        $ids = array_map(function ($e) { return (string)($e['id'] ?? ''); }, $events);
-        $ids = array_values(array_filter($ids, function ($x) { return $x !== ''; }));
-        if ($ids) {
-            $marks = implode(',', array_fill(0, count($ids), '?'));
-            $st = $pdo->prepare('SELECT event_id, COUNT(*) AS n, SUM(active) AS act FROM event_sources WHERE event_id IN (' . $marks . ') GROUP BY event_id');
-            $st->execute($ids);
-            foreach ($st->fetchAll() as $r) {
-                $counts[(string)$r['event_id']] = [(int)$r['n'], (int)$r['act']];
-            }
-        }
+        $shown = array_slice($list, 0, 150);
         ?>
         <div class="card">
           <form method="get" class="filters">
-            <input type="hidden" name="v" value="home">
-            <label>Fecha<input type="date" name="d" value="<?= h($date) ?>"></label>
-            <label>Buscar<input type="search" name="q" value="<?= h($q) ?>" placeholder="equipo o liga"></label>
-            <label class="chk"><input type="checkbox" name="live" value="1" <?= $onlyLive ? 'checked' : '' ?>> Solo en vivo</label>
+            <input type="hidden" name="v" value="logos">
+            <label>Buscar equipo<input type="search" name="q" value="<?= h($q) ?>" placeholder="nombre del equipo"></label>
             <button type="submit">Filtrar</button>
           </form>
         </div>
         <div class="card">
-          <h2>Eventos disponibles (<?= count($events) ?>)</h2>
-          <p class="mut">Se combinan eventos en vivo, la fecha elegida y el día siguiente, igual que en la aplicación. Quedan excluidos los canales 24/7, darts, WWE, College Basketball, NBL, Allsvenskan, NHL y el resto de competiciones no deseadas.</p>
-          <?php if ($listError): ?><p class="bad">No se pudo consultar a RockyLive: <?= h($listError) ?></p><?php endif; ?>
-          <?php if (!$listError && !$events): ?><p class="mut">No hay eventos para este filtro.</p><?php endif; ?>
-          <?php foreach ($events as $e):
-              $id = (string)($e['id'] ?? '');
-              if ($id === '' || !valid_event_id($id)) { continue; }
-              $c = $counts[$id] ?? [0, 0]; ?>
-            <a class="row" href="?v=event&id=<?= h(rawurlencode($id)) ?>&d=<?= h(rawurlencode($date)) ?>">
-              <span class="t"><?= !empty($e['live']) ? '<span class="tag live">VIVO</span>' : h(fmt_ts($e['kickoff'] ?? 0)) ?></span>
-              <span class="m"><b><?= h($e['home'] ?? '') ?></b><?php if (($e['away'] ?? '') !== ''): ?> vs <b><?= h($e['away']) ?></b><?php endif; ?><small><?= h($e['league'] ?? '') ?></small></span>
-              <span class="b">
-                <?php if ($c[0] > 0): ?><span class="tag ok"><?= $c[1] ?>/<?= $c[0] ?> enlaces</span><?php endif; ?>
-                <?php if (!empty($e['embed_url'])): ?><span class="tag">RockyLive</span><?php endif; ?>
-              </span>
-            </a>
-          <?php endforeach; ?>
+          <h2>Escudos (<?= count($teams) ?> equipos · <?= $missing ?> sin escudo)</h2>
+          <p class="mut">Pega la URL del escudo de cada equipo una sola vez y se usa en todos sus partidos. Un escudo cargado en un evento puntual tiene prioridad. Los equipos sin escudo se ven con sus iniciales en la app. Vacía una URL para quitar el escudo.<?= count($list) > 150 ? ' Se muestran 150; usa el buscador para ver otros.' : '' ?></p>
+          <?php if (!$shown): ?><p class="mut">Todavía no hay equipos: importa un CSV o crea un evento.</p><?php else: ?>
+          <form method="post">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="logos_save">
+            <input type="hidden" name="q" value="<?= h($q) ?>">
+            <?php foreach ($shown as $t): ?>
+              <div class="row" style="cursor:default">
+                <span class="t" style="width:44px"><?php if ($t['url'] !== ''): ?><img src="<?= h($t['url']) ?>" alt="" width="32" height="32" style="object-fit:contain" referrerpolicy="no-referrer"><?php endif; ?></span>
+                <span class="m" style="flex:0 0 200px"><b><?= h($t['name']) ?></b><input type="hidden" name="name[]" value="<?= h($t['name']) ?>"></span>
+                <span class="m"><input name="url[]" value="<?= h($t['url']) ?>" maxlength="500" placeholder="https://…/escudo.png" style="margin-top:0"></span>
+              </div>
+            <?php endforeach; ?>
+            <div class="actions" style="margin-top:14px"><button type="submit">Guardar escudos</button></div>
+          </form>
+          <?php endif; ?>
+        </div>
+        <div class="card" style="max-width:720px">
+          <h2>Importar escudos desde CSV</h2>
+          <p class="mut">Un CSV con dos columnas: <code>equipo</code> y <code>escudo</code> (URL de la imagen).</p>
+          <form method="post" enctype="multipart/form-data">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="logos_csv">
+            <label>Archivo CSV<input type="file" name="csv" accept=".csv,.txt,text/csv" required></label>
+            <div class="actions"><button type="submit">Importar escudos</button></div>
+          </form>
         </div>
         <?php
     }
@@ -828,7 +1056,7 @@ if ($fatal) {
 
 $body = (string)ob_get_clean();
 $nav = $logged && !$fatal && !$needsSetup;
-$view = (string)($_GET['v'] ?? 'home');
+$view = admin_view();
 ?>
 <!doctype html>
 <html lang="es">
@@ -836,9 +1064,9 @@ $view = (string)($_GET['v'] ?? 'home');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.16" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.16">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.16">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.17" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.17">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.17">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -870,6 +1098,7 @@ $view = (string)($_GET['v'] ?? 'home');
   input[type=checkbox] { display:inline-block; width:auto; margin:0 7px 0 0; accent-color:var(--accent2); }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .filters { display:grid; grid-template-columns:1fr 1.4fr auto auto; gap:12px; align-items:end; }
+  .filters > a.btn, .filters > button { margin-bottom:12px; }
   .filters .chk { margin:0 0 12px; color:var(--txt); white-space:nowrap; }
   button { background:linear-gradient(135deg,var(--accent),#8be7c1); color:#092018; border:0; border-radius:10px; padding:10px 15px; font-weight:800; cursor:pointer; font-size:12px; transition:filter .18s,transform .18s; }
   button:hover { filter:brightness(1.06); transform:translateY(-1px); }
@@ -877,6 +1106,7 @@ $view = (string)($_GET['v'] ?? 'home');
   button.danger { background:rgba(255,115,125,.12); color:#ff9aa2; border:1px solid rgba(255,115,125,.3); }
   .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   a.btn { display:inline-block; background:linear-gradient(135deg,var(--accent),#8be7c1); color:#092018; border-radius:10px; padding:10px 15px; font-weight:800; text-decoration:none; font-size:12px; }
+  a.btn.alt { background:#263850; color:#e3edf9; border:1px solid #344a66; }
   a.link { color:var(--accent); text-decoration:none; }
   .src { border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
   .src:first-of-type { border-top:0; margin-top:0; padding-top:0; }
@@ -885,6 +1115,7 @@ $view = (string)($_GET['v'] ?? 'home');
   .row:first-of-type { border-top:0; }
   .row:hover { background:rgba(111,144,180,.09); }
   .row .t { width:78px; color:var(--mut); font-size:12px; flex:none; }
+  .row .t small { font-size:10px; }
   .row .m { flex:1; min-width:0; }
   .row .m b { font-weight:700; }
   .row .m small { display:block; color:var(--mut); margin-top:4px; font-size:11px; }
@@ -901,11 +1132,12 @@ $view = (string)($_GET['v'] ?? 'home');
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.16" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.17" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
-      <a href="?v=home" class="<?= !in_array($view, ['linked', 'manual', 'manual_new', 'config'], true) ? 'on' : '' ?>">Eventos</a>
-      <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new'], true) ? 'on' : '' ?>">Eventos propios</a>
+      <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new', 'event'], true) ? 'on' : '' ?>">Eventos</a>
+      <a href="?v=import" class="<?= $view === 'import' ? 'on' : '' ?>">Importar CSV</a>
+      <a href="?v=logos" class="<?= $view === 'logos' ? 'on' : '' ?>">Escudos</a>
       <a href="?v=linked" class="<?= $view === 'linked' ? 'on' : '' ?>">Con enlaces</a>
       <a href="?v=config" class="<?= $view === 'config' ? 'on' : '' ?>">Configuración</a>
       <a href="../">Backend</a>

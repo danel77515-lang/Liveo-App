@@ -15,12 +15,9 @@ import 'theme.dart';
 /// Minimalista: video a pantalla completa en horizontal, controles que se
 /// ocultan solos, selector de fuentes, imagen en imagen (PiP) y Chromecast.
 class LivePlayerPage extends StatefulWidget {
-  const LivePlayerPage({super.key, required this.event, this.openWeb});
+  const LivePlayerPage({super.key, required this.event});
 
   final LiveEvent event;
-
-  /// Si el evento también tiene reproductor de RockyLive, permite cambiar a él.
-  final void Function(BuildContext context)? openWeb;
 
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
@@ -585,7 +582,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   }
 
   Widget _topBar() {
-    final multi = _links.length > 1 || widget.openWeb != null;
+    final multi = _links.length > 1;
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
       child: Row(
@@ -624,11 +621,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               tooltip: 'Fuentes',
               icon: const Icon(Icons.layers_outlined, color: Colors.white),
               onSelected: (i) {
-                if (i < 0) {
-                  widget.openWeb?.call(context);
-                } else {
-                  _selectSource(i);
-                }
+                _selectSource(i);
               },
               itemBuilder: (_) => [
                 for (var i = 0; i < _links.length; i++)
@@ -636,11 +629,6 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                     value: i,
                     checked: i == _index,
                     child: Text(_links[i].label),
-                  ),
-                if (widget.openWeb != null)
-                  const PopupMenuItem<int>(
-                    value: -1,
-                    child: Text('RockyLive (web)'),
                   ),
               ],
             ),

@@ -29,19 +29,6 @@ function require_method(string $method, array $allowed): void
     }
 }
 
-/**
- * Eventos de RockyLive que cumplen $filter. Si el proveedor falla devuelve
- * [[], $error] para poder mostrar igualmente los eventos propios del panel.
- */
-function provider_event_list(callable $filter): array
-{
-    try {
-        return [array_values(array_filter(rockylive_events(), $filter)), null];
-    } catch (Throwable $e) {
-        return [[], $e];
-    }
-}
-
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = route_path();
 
@@ -59,25 +46,15 @@ try {
                 $dbStatus = 'not_installed';
             }
         }
-        $out = [
+        respond([
             'success'     => true,
             'application' => 'Liveo',
             'version'     => LIVEO_VERSION,
             'php'         => PHP_VERSION,
             'database'    => $dbStatus,
-            'provider'    => 'RockyLive',
+            'source'      => 'manual',
             'time'        => date('c'),
-        ];
-        if (!empty($_GET['deep'])) {
-            try {
-                rockylive_events();
-                $out['provider_status'] = 'ok';
-            } catch (Throwable $e) {
-                $out['provider_status'] = 'error';
-                $out += error_detail($e);
-            }
-        }
-        respond($out);
+        ]);
     }
 
     // ---- Agenda --------------------------------------------------------
@@ -87,48 +64,30 @@ try {
         if (!valid_date($date)) {
             respond(['success' => false, 'error' => 'Fecha inválida (use AAAA-MM-DD)'], 400);
         }
-        $tz = new DateTimeZone((string)liveo_config()['timezone']);
-        $from = (new DateTimeImmutable($date . ' 00:00:00', $tz))->getTimestamp();
-        $to = (new DateTimeImmutable($date . ' 00:00:00', $tz))->modify('+1 day')->getTimestamp();
-        [$list, $err] = provider_event_list(function ($e) use ($from, $to) {
-            $k = (int)($e['kickoff'] ?? 0);
-            return $k >= $from && $k < $to;
-        });
-        $manual = manual_events_for_date($date);
-        if ($err !== null && !$manual) {
-            throw $err;
-        }
-        respond(['success' => true, 'server_time' => time(), 'date' => $date, 'events' => attach_links(array_merge($manual, $list))]);
+        respond(['success' => true, 'server_time' => time(), 'date' => $date, 'events' => attach_links(manual_events_for_date($date))]);
+    }
+
+    // ---- Próximos (desde hoy, N días) ------------------------------------
+    if ($path === 'upcoming') {
+        require_method($method, ['GET']);
+        $days = isset($_GET['days']) ? (int)$_GET['days'] : 14;
+        respond(['success' => true, 'server_time' => time(), 'events' => attach_links(manual_events_upcoming($days))]);
     }
 
     // ---- En vivo -------------------------------------------------------
     if ($path === 'live') {
         require_method($method, ['GET']);
-        [$list, $err] = provider_event_list(function ($e) {
-            return !empty($e['live']);
-        });
-        $manual = manual_events_live();
-        if ($err !== null && !$manual) {
-            throw $err;
-        }
-        respond(['success' => true, 'server_time' => time(), 'events' => attach_links(array_merge($manual, $list))]);
+        respond(['success' => true, 'server_time' => time(), 'events' => attach_links(manual_events_live())]);
     }
 
     // ---- Detalle de evento ----------------------------------------------
     if (preg_match('#^events/([A-Za-z0-9_.-]{1,80})$#', $path, $m)) {
         require_method($method, ['GET']);
-        if (strncmp($m[1], 'manual-', 7) === 0) {
-            $mev = manual_event_by_key($m[1]);
-            if ($mev === null) {
-                respond(['success' => false, 'error' => 'Evento no disponible'], 404);
-            }
-            respond(['success' => true, 'event' => attach_links([$mev])[0]]);
-        }
-        $ev = rockylive_event_by_id($m[1]);
-        if ($ev === null) {
+        $mev = manual_event_by_key($m[1]);
+        if ($mev === null) {
             respond(['success' => false, 'error' => 'Evento no disponible'], 404);
         }
-        respond(['success' => true, 'event' => attach_links([$ev])[0]]);
+        respond(['success' => true, 'event' => attach_links([$mev])[0]]);
     }
 
     // ---- Favoritos (por dispositivo) --------------------------------------

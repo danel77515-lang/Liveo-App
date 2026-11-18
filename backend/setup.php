@@ -47,7 +47,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             ) ENGINE=InnoDB');
             ensure_sources_schema($pdo);
             $ok = true;
-            $messages[] = 'Base de datos "' . $dbName . '" y tablas listas (incluye los enlaces y los eventos propios del panel de administración).';
+            $messages[] = 'Base de datos "' . $dbName . '" y tablas listas (incluye eventos, escudos y enlaces del panel de administración).';
         } catch (Throwable $e) {
             $ok = false;
             $messages[] = 'Error: ' . $e->getMessage();
@@ -62,9 +62,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Instalación</title>
-<link rel="icon" href="assets/favicon.ico?v=1.0.16" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.16">
-<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.16">
+<link rel="icon" href="assets/favicon.ico?v=1.0.17" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.17">
+<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.17">
 <meta name="theme-color" content="#101722">
 <style>
   body { margin:0; font-family: system-ui, "Segoe UI", sans-serif; background:#0b1422; color:#e8eef9; }

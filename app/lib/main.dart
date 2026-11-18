@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' show FontFeature;
 
@@ -7,7 +6,6 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import 'cast_service.dart';
 import 'live_player.dart';
@@ -18,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.16';
+const String liveoVersion = '1.0.17';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -636,50 +634,16 @@ class _LiveoAppState extends State<LiveoApp> {
   }
 }
 
-/// Abre el reproductor del evento según el ajuste "Reproductor":
-/// integrado (enlaces m3u8 propios, PiP y Chromecast) o de tercero (RockyLive).
-/// Si el elegido no tiene señal para este evento, usa el otro como respaldo.
+/// Abre el reproductor integrado del evento (enlaces m3u8 cargados en el panel).
 Future<void> openEvent(BuildContext context, LiveEvent e) async {
-  final p = await SharedPreferences.getInstance();
-  if (!context.mounted) return;
-  final third = (p.getString('playerMode') ?? 'integrated') == 'third';
-  final web = e.embedUrl;
-  final hasOwn = e.links.isNotEmpty;
-
-  void openOwn() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => LivePlayerPage(
-          event: e,
-          openWeb: web == null
-              ? null
-              : (ctx) => Navigator.of(ctx).pushReplacement(
-                    MaterialPageRoute<void>(
-                      builder: (_) => WebPlayerPage(url: web, title: e.title),
-                    ),
-                  ),
-        ),
-      ),
+  if (e.links.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Este evento todavía no tiene señal.')),
     );
+    return;
   }
-
-  void openThird() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => WebPlayerPage(url: web!, title: e.title),
-      ),
-    );
-  }
-
-  if (third) {
-    if (web != null) return openThird();
-    if (hasOwn) return openOwn();
-  } else {
-    if (hasOwn) return openOwn();
-    if (web != null) return openThird();
-  }
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Este evento todavía no tiene señal.')),
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => LivePlayerPage(event: e)),
   );
 }
 
@@ -880,6 +844,9 @@ int _liveFirst(LiveEvent a, LiveEvent b) {
 
 /// Eventos cargados (en vivo + hoy + mañana). Los usan el inicio, el buscador
 /// y los favoritos.
+/// Días hacia adelante que carga el inicio (el servidor admite hasta 120).
+const int _upcomingDays = 14;
+
 class EventsStore {
   EventsStore._();
 
@@ -898,11 +865,9 @@ class EventsStore {
       }
     }
 
-    final now = DateTime.now();
     final res = await Future.wait([
       safe('live'),
-      safe('schedule?date=${fmtYmd(now)}'),
-      safe('schedule?date=${fmtYmd(now.add(const Duration(days: 1)))}'),
+      safe('upcoming?days=$_upcomingDays'),
     ]);
     final byKey = <String, LiveEvent>{};
     for (final list in res) {
@@ -955,12 +920,11 @@ class FavStore {
 
 enum _Quick { all, live, today, tomorrow }
 
-/// Lo que se muestra en el inicio: eventos en vivo, o próximos con señal.
+/// Lo que se muestra en el inicio: eventos en vivo y próximos.
 List<LiveEvent> _homeEvents(List<LiveEvent> all) {
   final from = DateTime.now().subtract(const Duration(minutes: 10));
   final out = all.where((e) {
     if (e.liveNow) return true;
-    if (!e.playable) return false;
     final k = e.kickoff;
     return k == null || k.isAfter(from);
   }).toList()
@@ -1090,46 +1054,256 @@ class _FavButton extends StatelessWidget {
   }
 }
 
-/// "HH:MM:SS"
-String _hms(Duration d) {
-  final t = d.isNegative ? Duration.zero : d;
-  return '${_p2(t.inHours)}:${_p2(t.inMinutes.remainder(60))}:'
-      '${_p2(t.inSeconds.remainder(60))}';
+// ---------------------------------------------------------------------------
+// Tarjeta de evento: hora · deporte · escudos y rivales | cuenta regresiva
+// ---------------------------------------------------------------------------
+
+/// Ícono del deporte según el texto de deporte / competición.
+IconData sportIcon(String sport, String league) {
+  final s = _fold('$sport $league');
+  bool any(List<String> keys) => keys.any(s.contains);
+  if (any(['futbol americano', 'american football', 'nfl'])) {
+    return Icons.sports_football_rounded;
+  }
+  if (any(['basquet', 'baloncesto', 'basket', 'nba'])) {
+    return Icons.sports_basketball_rounded;
+  }
+  if (any(['tenis', 'tennis'])) return Icons.sports_tennis_rounded;
+  if (any(['beisbol', 'baseball', 'mlb'])) return Icons.sports_baseball_rounded;
+  if (any(['hockey', 'nhl'])) return Icons.sports_hockey_rounded;
+  if (any(['rugby'])) return Icons.sports_rugby_rounded;
+  if (any(['voley', 'volley'])) return Icons.sports_volleyball_rounded;
+  if (any(['motociclismo', 'motogp', 'moto '])) return Icons.two_wheeler_rounded;
+  if (any(['ciclismo', 'cycling'])) return Icons.directions_bike_rounded;
+  if (any(['automovilismo', 'formula', 'rally', 'motorsport', 'nascar'])) {
+    return Icons.sports_motorsports_rounded;
+  }
+  if (any(['mma', 'ufc'])) return Icons.sports_mma_rounded;
+  if (any(['boxeo', 'boxing'])) return Icons.sports_martial_arts_rounded;
+  if (any(['golf'])) return Icons.sports_golf_rounded;
+  if (any(['futbol', 'soccer', 'football'])) return Icons.sports_soccer_rounded;
+  return Icons.sports_rounded;
 }
 
-/// La cuenta regresiva solo se muestra cuando falta poco para empezar.
-/// Más lejos, la tarjeta muestra solo la hora y el día.
-const Duration _countdownWindow = Duration(hours: 1);
+/// Escudo del equipo (URL del panel) o, si no hay, sus iniciales.
+class _Crest extends StatelessWidget {
+  const _Crest({required this.url, required this.name, this.size = 28});
 
-/// Cuenta regresiva: "Empieza en 50:48".
-class _Countdown extends StatelessWidget {
-  const _Countdown({required this.kickoff});
+  final String? url;
+  final String name;
+  final double size;
 
-  final DateTime kickoff;
+  Widget _initials() {
+    final words =
+        name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final txt = words.isEmpty
+        ? '?'
+        : (words.length == 1
+                ? words.first.substring(0, math.min(2, words.first.length))
+                : '${words.first[0]}${words[1][0]}')
+            .toUpperCase();
+    final hue = (name.hashCode.abs() % 360).toDouble();
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: HSLColor.fromAHSL(1, hue, 0.45, 0.4).toColor(),
+      ),
+      child: Text(
+        txt,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: size * 0.38,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: _clock,
-      builder: (context, tick, child) {
-        final d = kickoff.difference(syncedNow());
-        // Redondea hacia arriba para que el último segundo sea 00:01.
-        final secs = (d.inMilliseconds / 1000).ceil().clamp(0, 359999).toInt();
-        final h = secs ~/ 3600;
-        final m = (secs % 3600) ~/ 60;
-        final s = secs % 60;
-        final t = 'Empieza en ${h > 0 ? '$h:' : ''}${_p2(m)}:${_p2(s)}';
-        return FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            t,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            softWrap: false,
-            style: TextStyle(fontSize: 12, color: _muted(context)),
+    final u = url;
+    if (u == null || u.isEmpty) return _initials();
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Image.network(
+        u,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stack) => _initials(),
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : _initials(),
+      ),
+    );
+  }
+}
+
+/// Una fila de la tarjeta: escudo + nombre.
+class _TeamRow extends StatelessWidget {
+  const _TeamRow({
+    required this.name,
+    required this.logo,
+    required this.terms,
+  });
+
+  final String name;
+  final String? logo;
+  final List<String> terms;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _Crest(url: logo, name: name),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _Hl(
+            name,
+            terms,
+            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
           ),
-        );
-      },
+        ),
+      ],
+    );
+  }
+}
+
+/// Un casillero de la cuenta regresiva: número de dos cifras y su unidad.
+class _CdCell extends StatelessWidget {
+  const _CdCell({required this.value, required this.unit});
+
+  final int value;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              _p2(value),
+              maxLines: 1,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            unit,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 8.5,
+              letterSpacing: 0.4,
+              fontWeight: FontWeight.w600,
+              color: _muted(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Columna derecha: cuenta regresiva (días, horas, minutos y segundos), «EN VIVO»
+/// con ondas, o el estado del evento.
+class _RightBlock extends StatelessWidget {
+  const _RightBlock({required this.event, required this.now});
+
+  final LiveEvent event;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = TextStyle(fontSize: 11, color: _muted(context));
+    if (event.liveNow) {
+      return const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PulsingLive(),
+          SizedBox(height: 3),
+          Text(
+            'EN VIVO',
+            style: TextStyle(
+              color: Pal.live,
+              fontWeight: FontWeight.w800,
+              fontSize: 12.5,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
+      );
+    }
+    final label = event.stateLabel;
+    if (label != null) {
+      return Center(
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: _muted(context),
+          ),
+        ),
+      );
+    }
+    final k = event.kickoff;
+    if (k == null) {
+      return Center(
+        child: Text(event.status, textAlign: TextAlign.center, style: muted),
+      );
+    }
+    if (event.timeTbc) {
+      // Solo se conoce la fecha: días que faltan (por calendario) y aviso.
+      final days = DateTime(k.year, k.month, k.day)
+          .difference(DateTime(now.year, now.month, now.day))
+          .inDays;
+      final big = days <= 0 ? 'Hoy' : (days == 1 ? 'Mañana' : '$days');
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            big,
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+          ),
+          if (days > 1) Text('días', style: muted),
+          const SizedBox(height: 2),
+          Text('Hora a confirmar', style: muted, textAlign: TextAlign.center),
+        ],
+      );
+    }
+    final left = k.difference(now);
+    if (left <= Duration.zero) {
+      return Center(child: Text('Finalizado', style: muted));
+    }
+    // Redondea hacia arriba para que el último segundo sea 00:00:00:01.
+    final secs = (left.inMilliseconds / 1000).ceil();
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('Empieza en', style: muted),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            _CdCell(value: secs ~/ 86400, unit: 'DÍAS'),
+            _CdCell(value: (secs % 86400) ~/ 3600, unit: 'HRS'),
+            _CdCell(value: (secs % 3600) ~/ 60, unit: 'MIN'),
+            _CdCell(value: secs % 60, unit: 'SEG'),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -1171,118 +1345,53 @@ class _PulsingLiveState extends State<_PulsingLive>
   }
 }
 
-/// Bloque "en vivo": ícono animado, "En vivo" y cronómetro que sube desde el
-/// inicio del partido (HH:MM:SS).
-class _LiveBlock extends StatelessWidget {
-  const _LiveBlock({required this.event});
+/// Columna izquierda: hora (gris) y, debajo, el minuto en rojo si está en vivo
+/// (o el día si todavía no empezó).
+class _TimeColumn extends StatelessWidget {
+  const _TimeColumn({required this.event, required this.now});
 
   final LiveEvent event;
+  final DateTime now;
 
   @override
   Widget build(BuildContext context) {
     final k = event.kickoff;
+    final muted = _muted(context);
     final m = minuteLabel(event.minute);
+    final live = event.liveNow;
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const _PulsingLive(),
-        const SizedBox(height: 2),
-        const Text(
-          'En vivo',
+        Text(
+          k == null || event.timeTbc ? '--:--' : fmtHm(k),
           style: TextStyle(
-            color: Pal.live,
-            fontWeight: FontWeight.w600,
-            fontSize: 12.5,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: muted,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
-        const SizedBox(height: 6),
-        if (k != null)
-          ValueListenableBuilder<int>(
-            valueListenable: _clock,
-            builder: (context, tick, child) => Text(
-              _hms(syncedNow().difference(k)),
-              maxLines: 1,
-              style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          )
-        else if (m != null)
+        const SizedBox(height: 3),
+        if (live && m != null)
           Text(
             m,
             style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
               color: Pal.live,
+            ),
+          )
+        else if (!live && k != null)
+          Text(
+            _dayLabel(k),
+            style: const TextStyle(
+              fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              fontSize: 12.5,
+              color: Pal.accent,
             ),
           ),
       ],
-    );
-  }
-}
-
-class _CenterInfo extends StatelessWidget {
-  const _CenterInfo({required this.event});
-
-  final LiveEvent event;
-
-  @override
-  Widget build(BuildContext context) {
-    final k = event.kickoff;
-    if (k == null) {
-      if (event.liveNow) return _LiveBlock(event: event);
-      return Text(
-        event.status,
-        textAlign: TextAlign.center,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, color: _muted(context)),
-      );
-    }
-    // El reloj de 1 s decide en cada tick: en vivo, cuenta regresiva (solo si
-    // falta poco) o simplemente la hora y el día.
-    return ValueListenableBuilder<int>(
-      valueListenable: _clock,
-      builder: (context, tick, child) {
-        if (event.liveNow) return _LiveBlock(event: event);
-        final label = event.stateLabel;
-        final left = k.difference(syncedNow());
-        final showCountdown = left > Duration.zero && left <= _countdownWindow;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              fmtHm(k),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            Text(
-              _dayLabel(k),
-              style: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: Pal.accent,
-              ),
-            ),
-            if (label != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                label,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: _muted(context),
-                ),
-              ),
-            ] else if (showCountdown) ...[
-              const SizedBox(height: 4),
-              _Countdown(kickoff: k),
-            ],
-          ],
-        );
-      },
     );
   }
 }
@@ -1302,98 +1411,139 @@ class _EventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final border =
         Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12);
-    const teamStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.w700);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: _cardColor(context),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: event.liveNow ? Pal.live.withValues(alpha: 0.55) : border,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () {
-            onOpened?.call();
-            openEvent(context, event);
-          },
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const SizedBox(width: 40),
-                    Expanded(
-                      child: _Hl(
-                        event.league,
-                        terms,
-                        align: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: _muted(context),
-                        ),
-                      ),
-                    ),
-                    _FavButton(id: event.id),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                if (event.away.isEmpty)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _Hl(
-                          event.home,
-                          terms,
-                          align: TextAlign.center,
-                          maxLines: 2,
-                          style: teamStyle,
-                        ),
-                      ),
-                      SizedBox(width: 108, child: _CenterInfo(event: event)),
-                    ],
-                  )
-                else
-                Row(
-                  children: [
-                    Expanded(
-                      child: _Hl(
-                        event.home,
-                        terms,
-                        align: TextAlign.center,
-                        maxLines: 2,
-                        style: teamStyle,
-                      ),
-                    ),
-                    SizedBox(width: 108, child: _CenterInfo(event: event)),
-                    Expanded(
-                      child: _Hl(
-                        event.away,
-                        terms,
-                        align: TextAlign.center,
-                        maxLines: 2,
-                        style: teamStyle,
-                      ),
-                    ),
-                  ],
-                ),
-                if (!event.playable)
+    // Un solo reloj de 1 s reconstruye la tarjeta: cuenta regresiva, paso a
+    // «en vivo» y borde rojo cambian sin recargar la lista.
+    return ValueListenableBuilder<int>(
+      valueListenable: _clock,
+      builder: (context, tick, child) {
+        final now = syncedNow();
+        final live = event.liveNow;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Material(
+            color: _cardColor(context),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(
+                color: live ? Pal.live.withValues(alpha: 0.55) : border,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            // Toda la tarjeta abre el reproductor.
+            child: InkWell(
+              onTap: () {
+                onOpened?.call();
+                openEvent(context, event);
+              },
+              child: Column(
+                children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Sin señal por ahora',
-                      style: TextStyle(fontSize: 11.5, color: _muted(context)),
+                    padding: const EdgeInsets.fromLTRB(14, 4, 4, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _Hl(
+                            event.league,
+                            terms,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (event.playable)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 2),
+                            child: Icon(
+                              Icons.play_circle_fill_rounded,
+                              size: 18,
+                              color: Pal.accent,
+                            ),
+                          ),
+                        _FavButton(id: event.id),
+                      ],
                     ),
                   ),
-              ],
+                  Divider(height: 1, thickness: 1, color: border),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: 58,
+                          child: _TimeColumn(event: event, now: now),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: Center(
+                            child: Icon(
+                              sportIcon(event.sport, event.league),
+                              size: 22,
+                              color: _muted(context),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: event.away.isEmpty
+                                ? Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: _Hl(
+                                      event.home,
+                                      terms,
+                                      maxLines: 3,
+                                      style: const TextStyle(
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  )
+                                : Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    children: [
+                                      _TeamRow(
+                                        name: event.home,
+                                        logo: event.homeLogo,
+                                        terms: terms,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _TeamRow(
+                                        name: event.away,
+                                        logo: event.awayLogo,
+                                        terms: terms,
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                        VerticalDivider(
+                          width: 1,
+                          thickness: 1,
+                          indent: 10,
+                          endIndent: 10,
+                          color: border,
+                        ),
+                        SizedBox(
+                          width: 132,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 8,
+                            ),
+                            child: _RightBlock(event: event, now: now),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -1619,13 +1769,13 @@ class _EventsHomeState extends State<EventsHome> {
   String _emptyText() {
     switch (_quick) {
       case _Quick.all:
-        return 'Aún no hay eventos con señal. Mira la Agenda para ver todos.';
+        return 'Aún no hay eventos cargados.';
       case _Quick.live:
         return 'No hay partidos en vivo ahora.';
       case _Quick.today:
         return 'No hay más eventos para hoy.';
       case _Quick.tomorrow:
-        return 'Todavía no hay eventos con señal para mañana.';
+        return 'Todavía no hay eventos para mañana.';
     }
   }
 
@@ -2441,168 +2591,6 @@ class _SearchPageState extends State<SearchPage> {
 }
 
 // ---------------------------------------------------------------------------
-// Reproductor de RockyLive (respaldo): su embed dentro de un iframe, en horizontal
-// ---------------------------------------------------------------------------
-
-/// Página mínima que incrusta el reproductor en un iframe, como indica la
-/// documentación de RockyLive (https://rockylive.st/api/). No se oculta ni se
-/// tapa la publicidad del reproductor.
-String _playerHtml(String embedUrl) {
-  final srcJs = jsonEncode(embedUrl).replaceAll('</', r'<\/');
-  return '''<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<style>
-html,body{margin:0;height:100%;background:#000;overflow:hidden}
-iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:0;background:#000}
-</style></head><body>
-<script>
-(function(){
-var f=document.createElement("iframe");
-f.src=$srcJs;f.setAttribute("frameborder","0");f.allowFullscreen=true;
-f.allow="autoplay; fullscreen; picture-in-picture";document.body.appendChild(f);
-})();
-</script></body></html>''';
-}
-
-class WebPlayerPage extends StatefulWidget {
-  const WebPlayerPage({super.key, required this.url, required this.title});
-
-  final String url;
-  final String title;
-
-  @override
-  State<WebPlayerPage> createState() => _WebPlayerPageState();
-}
-
-class _WebPlayerPageState extends State<WebPlayerPage> {
-  late final WebViewController controller;
-  late final String _base = '${Uri.parse(apiBase).origin}/';
-  Timer? _hideTimer;
-  bool _loading = true;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    ScreenMode.landscape();
-    controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: _onNavigation,
-          onPageFinished: (_) {
-            _hideTimer?.cancel();
-            _hideTimer = Timer(const Duration(milliseconds: 1200), () {
-              if (mounted) setState(() => _loading = false);
-            });
-          },
-          onWebResourceError: (e) {
-            if (e.isForMainFrame == true && mounted) {
-              setState(() {
-                _failed = true;
-                _loading = false;
-              });
-            }
-          },
-        ),
-      );
-    _loadPlayer();
-  }
-
-  NavigationDecision _onNavigation(NavigationRequest r) {
-    if (!r.isMainFrame) {
-      final u = Uri.tryParse(r.url);
-      final ok = u != null && (u.scheme == 'http' || u.scheme == 'https');
-      return ok ? NavigationDecision.navigate : NavigationDecision.prevent;
-    }
-    // Solo se permite la página contenedora; el reproductor no puede sacar
-    // a la persona de la app.
-    if (r.url == _base ||
-        r.url.startsWith('about:') ||
-        r.url.startsWith('data:')) {
-      return NavigationDecision.navigate;
-    }
-    return NavigationDecision.prevent;
-  }
-
-  void _loadPlayer() {
-    controller.loadHtmlString(_playerHtml(widget.url), baseUrl: _base);
-  }
-
-  void _reload() {
-    setState(() {
-      _loading = true;
-      _failed = false;
-    });
-    _loadPlayer();
-  }
-
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    ScreenMode.restore();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(child: WebViewWidget(controller: controller)),
-          if (_loading)
-            const Center(
-              child: SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Colors.white70,
-                ),
-              ),
-            ),
-          if (_failed)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black,
-                alignment: Alignment.center,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'No se pudo cargar el reproductor',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                    TextButton(
-                      onPressed: _reload,
-                      child: const Text('Reintentar'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          Positioned(
-            top: 4,
-            left: 4,
-            child: SafeArea(
-              child: IconButton(
-                tooltip: 'Volver',
-                onPressed: () => Navigator.of(context).maybePop(),
-                style: IconButton.styleFrom(backgroundColor: Colors.black38),
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Ajustes
 // ---------------------------------------------------------------------------
 
@@ -2695,7 +2683,6 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _pip = true;
-  bool _thirdParty = false;
 
   @override
   void initState() {
@@ -2708,48 +2695,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     setState(() {
       _pip = p.getBool('pipOnLeave') ?? true;
-      _thirdParty = (p.getString('playerMode') ?? 'integrated') == 'third';
     });
-  }
-
-  Future<void> _pickPlayer() async {
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        Widget opt(String value, String title, String sub) {
-          final selected = (value == 'third') == _thirdParty;
-          return ListTile(
-            title: Text(title),
-            subtitle: Text(sub),
-            trailing: selected
-                ? const Icon(Icons.check_circle_rounded, color: Pal.accent)
-                : const Icon(Icons.circle_outlined),
-            onTap: () => Navigator.of(ctx).pop(value),
-          );
-        }
-
-        return SimpleDialog(
-          title: const Text('Reproductor'),
-          children: [
-            opt(
-              'integrated',
-              'Integrado',
-              'Reproductor propio de Liveo (m3u8), con PiP y Chromecast',
-            ),
-            opt(
-              'third',
-              'De tercero',
-              'Reproductor web de RockyLive dentro de la app',
-            ),
-          ],
-        );
-      },
-    );
-    if (choice == null) return;
-    final p = await SharedPreferences.getInstance();
-    await p.setString('playerMode', choice);
-    if (!mounted) return;
-    setState(() => _thirdParty = choice == 'third');
   }
 
   Future<void> _setPip(bool v) async {
@@ -2808,12 +2754,6 @@ class _SettingsPageState extends State<SettingsPage> {
           subtitle: 'Al pulsar inicio con un directo abierto',
           trailing: Switch(value: _pip, onChanged: _setPip),
           onTap: () => _setPip(!_pip),
-        ),
-        _SettingsCard(
-          icon: Icons.play_circle_outline_rounded,
-          title: 'Reproductor',
-          subtitle: _thirdParty ? 'De tercero (RockyLive)' : 'Integrado',
-          onTap: _pickPlayer,
         ),
         const _Label('App'),
         _SettingsCard(

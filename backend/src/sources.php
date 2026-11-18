@@ -4,9 +4,9 @@ declare(strict_types=1);
 /**
  * Enlaces m3u8 propios de Liveo.
  *
- * Los eventos vienen de RockyLive (https://rockylive.st/api/); aquí solo se agregan enlaces (fuentes)
- * a esos eventos desde el panel /Liveo/admin/. La API los adjunta a cada
- * evento en el campo "links".
+ * Los eventos son propios (manual-N, cargados a mano o por CSV desde el panel
+ * /Liveo/admin/); aquí se guardan sus enlaces (fuentes). La API los adjunta a
+ * cada evento en el campo "links".
  */
 
 /** Crea las tablas necesarias si no existen (es seguro repetirlo). */
@@ -38,28 +38,10 @@ function ensure_sources_schema(PDO $pdo): void
         KEY idx_event (event_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     ensure_manual_schema($pdo);
-    // Elimina fuentes guardadas de Cricket y de las competiciones excluidas.
-    $blockedLike = [
-        '%cricket%', '%nba g league%', '%g league%', '%college basketball%', '%ncaa%', '%wwe%', '%pdc darts%', '%darts%',
-        '%nhl%', '%division di honor%', '%gff super league%', '%american ahl%', '%ahl%',
-        '%b1 league%', '%congo ligue 1%', '%elite one%', '%mali%premiere division%',
-        '%russian vhl%', '%vhl%', '%russian khl%', '%khl%', '%hockey allsvenskan%',
-        '%allsvenskan%', '%wnbl%', '%champions hockey league%',
-        '%finnish mestis%', '%mestis%', '%german del 2%', '%del2%', '%swiss league%',
-        '%danish metal ligaen%', '%metal ligaen%', '%scottish lowland league east%',
-        '%lowland league east%', '%fighting%', '%mexican pacific league%',
-        '%japanese we league%', '%we league%', 'one', '%one championship%',
-        '%australian nbl%', '%nbl%', '%asean club championship%', '%slovenia cup%',
-        '%indian football league%', '%russian vtb united league%', '%vtb united league%',
-        '%canadian ohl%', '%ontario hockey league%', '%ohl%', '%american echl%', '%echl%', '%finnish liiga%', '%liiga%'
-    ];
-    $where = implode(' OR ', array_fill(0, count($blockedLike), "LOWER(COALESCE(league, '')) LIKE ?"));
-    // Los eventos propios (manual-N) nunca se limpian por competición.
-    $cleanup = $pdo->prepare('DELETE FROM event_sources WHERE event_id NOT LIKE ? AND (' . $where . ')');
-    $cleanup->execute(array_merge(['manual-%'], $blockedLike));
-    // Limpieza de la integración anterior: caché del proveedor antiguo.
+    // Limpieza de la integración anterior (RockyLive): enlaces y caché de eventos "rl-…".
     try {
-        $pdo->exec("DELETE FROM api_cache WHERE cache_key LIKE 'p:%'");
+        $pdo->exec("DELETE FROM event_sources WHERE event_id LIKE 'rl-%'");
+        $pdo->exec("DELETE FROM api_cache WHERE cache_key LIKE 'rl:%' OR cache_key LIKE 'p:%'");
     } catch (Throwable $e) {
         // La caché es opcional.
     }

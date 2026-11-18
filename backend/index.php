@@ -36,16 +36,6 @@ if (!$pdo) {
     }
 }
 
-$providerResult = null;
-if (($_GET['check'] ?? '') === 'provider') {
-    try {
-        $all = rockylive_events();
-        $n = count(array_filter($all, function ($e) { return !empty($e['live']); }));
-        $providerResult = [true, 'RockyLive accesible. Eventos disponibles: ' . count($all) . ' · en vivo ahora: ' . $n];
-    } catch (Throwable $e) {
-        $providerResult = [false, $e->getMessage()];
-    }
-}
 ?>
 <!doctype html>
 <html lang="es">
@@ -53,9 +43,9 @@ if (($_GET['check'] ?? '') === 'provider') {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Backend</title>
-<link rel="icon" href="assets/favicon.ico?v=1.0.16" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.16">
-<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.16">
+<link rel="icon" href="assets/favicon.ico?v=1.0.17" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.17">
+<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.17">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme:dark; --bg:#0a1019; --card:#111b29; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --ok:#70dfb0; --bad:#ff737d; }
@@ -68,7 +58,7 @@ if (($_GET['check'] ?? '') === 'provider') {
 </head>
 <body>
 <main>
-  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.16" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Proveedor: RockyLive</p></div></div>
+  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.17" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Eventos propios (manual / CSV)</p></div></div>
 
   <div class="card">
     <h2>URL para la app Android</h2>
@@ -78,7 +68,7 @@ if (($_GET['check'] ?? '') === 'provider') {
 
   <div class="card">
     <h2>Panel de administración</h2>
-    <p class="mut">Agrega enlaces m3u8 a los eventos de RockyLive. La app los reproduce con su reproductor integrado (con PiP y Chromecast).</p>
+    <p class="mut">Carga los eventos a mano o subiendo un CSV, cambia su estado y minuto, y agrega enlaces m3u8. La app los reproduce con su reproductor integrado (con PiP y Chromecast).</p>
     <p><a class="btn" href="admin/">Abrir panel</a></p>
   </div>
 
@@ -91,15 +81,8 @@ if (($_GET['check'] ?? '') === 'provider') {
           <td><?= h($c[0]) ?><?php if ($c[2] !== ''): ?><div class="mut"><?= h($c[2]) ?></div><?php endif; ?></td>
         </tr>
       <?php endforeach; ?>
-      <?php if ($providerResult !== null): ?>
-        <tr>
-          <td class="<?= $providerResult[0] ? 'ok' : 'bad' ?>"><?= $providerResult[0] ? '✔' : '✖' ?></td>
-          <td>Proveedor RockyLive<div class="mut"><?= h($providerResult[1]) ?></div></td>
-        </tr>
-      <?php endif; ?>
     </table>
     <p style="margin-top:14px">
-      <a class="btn" href="?check=provider">Probar proveedor</a>
       <a class="btn" href="setup.php" style="background:#2b3a57;color:#e8eef9">Instalar base de datos</a>
     </p>
   </div>
@@ -107,10 +90,10 @@ if (($_GET['check'] ?? '') === 'provider') {
   <div class="card">
     <h2>Endpoints</h2>
     <ul>
-      <li><a class="link" href="api/health">api/health</a> · <a class="link" href="api/health?deep=1">api/health?deep=1</a></li>
-      <li><a class="link" href="api/schedule">api/schedule</a> (<code>?date=AAAA-MM-DD&amp;watchable=1</code>)</li>
+      <li><a class="link" href="api/health">api/health</a></li>
+      <li><a class="link" href="api/schedule">api/schedule</a> (<code>?date=AAAA-MM-DD</code>)</li>
+      <li><a class="link" href="api/upcoming">api/upcoming</a> (<code>?days=14</code>, desde hoy)</li>
       <li><a class="link" href="api/live">api/live</a></li>
-      <li><a class="link" href="api/channels">api/channels</a></li>
       <li><code>api/events/{id}</code> (cada evento incluye <code>links</code>: los m3u8 agregados desde el panel)</li>
       <li><code>api/favorites</code> (GET/POST/DELETE, con <code>device</code> y <code>event_id</code>)</li>
     </ul>

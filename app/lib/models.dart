@@ -116,7 +116,10 @@ class LiveEvent {
     required this.live,
     required this.kickoff,
     required this.status,
-    required this.embedUrl,
+    this.sport = '',
+    this.homeLogo,
+    this.awayLogo,
+    this.timeTbc = false,
     this.minute,
     this.links = const <StreamSource>[],
     this.liveLock = false,
@@ -132,8 +135,15 @@ class LiveEvent {
   final bool live;
   final DateTime? kickoff;
   final String status;
-  final String? embedUrl;
   final String? minute;
+
+  /// Deporte (para el ícono de la tarjeta) y escudos opcionales.
+  final String sport;
+  final String? homeLogo;
+  final String? awayLogo;
+
+  /// true = solo se conoce la fecha; la hora está por confirmar.
+  final bool timeTbc;
 
   /// Enlaces m3u8 propios (reproductor integrado de la app).
   final List<StreamSource> links;
@@ -151,12 +161,12 @@ class LiveEvent {
   String get title =>
       customTitle ?? (away.isEmpty ? home : '$home vs $away');
 
-  /// En vivo "de verdad", mirando la hora y no solo la marca del proveedor:
-  /// - el proveedor lo marca en vivo pero su hora de inicio todavía no llegó
+  /// En vivo "de verdad", mirando la hora y no solo la marca del servidor:
+  /// - el servidor lo marca en vivo pero su hora de inicio todavía no llegó
   ///   -> NO está en vivo (se muestra la cuenta regresiva);
-  /// - su hora llegó hace poco (hasta 10 min) y el proveedor aún no lo marcó
+  /// - su hora llegó hace poco (hasta 10 min) y el servidor aún no lo marcó
   ///   -> pasa a en vivo solo, sin esperar al refresco;
-  /// - sin hora de inicio se confía en el proveedor.
+  /// - sin hora de inicio se confía en el servidor.
   bool get liveNow {
     if (stateLabel != null) return false;
     if (liveLock) return live;
@@ -168,17 +178,17 @@ class LiveEvent {
     return now.difference(k) <= const Duration(minutes: 10);
   }
 
-  /// Tiene alguna señal: enlace propio o reproductor de RockyLive.
-  bool get playable => links.isNotEmpty || embedUrl != null;
+  /// Tiene alguna señal (enlace m3u8 cargado desde el panel).
+  bool get playable => links.isNotEmpty;
 
   factory LiveEvent.fromJson(Map<String, dynamic> j) {
-    String? embed;
-    final rawEmbed = j['embed_url'];
-    if (rawEmbed is String && rawEmbed.isNotEmpty) {
-      final uri = Uri.tryParse(rawEmbed);
+    String? logo(Object? v) {
+      if (v is! String) return null;
+      final uri = Uri.tryParse(v.trim());
       if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-        embed = rawEmbed;
+        return v.trim();
       }
+      return null;
     }
 
     String? score;
@@ -227,7 +237,10 @@ class LiveEvent {
       live: _truthy(j['live']),
       kickoff: _time(j['kickoff']),
       status: _name(j['status'], 'Horario a confirmar'),
-      embedUrl: embed,
+      sport: _name(j['sport'], ''),
+      homeLogo: logo(j['home_logo']),
+      awayLogo: logo(j['away_logo']),
+      timeTbc: _truthy(j['time_tbc']),
       minute: minute,
       links: links,
       liveLock: _truthy(j['live_lock']),
