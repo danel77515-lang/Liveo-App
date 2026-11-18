@@ -16,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.18';
+const String liveoVersion = '1.0.19';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1041,8 +1041,8 @@ class _FavButton extends StatelessWidget {
           tooltip: fav ? 'Quitar de favoritos' : 'Añadir a favoritos',
           visualDensity: VisualDensity.compact,
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 40, height: 32),
-          iconSize: 21,
+          constraints: const BoxConstraints.tightFor(width: 34, height: 26),
+          iconSize: 19,
           onPressed: () => FavStore.instance.toggle(id),
           icon: Icon(
             fav ? Icons.star_rounded : Icons.star_border_rounded,
@@ -1055,39 +1055,12 @@ class _FavButton extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Tarjeta de evento: hora · deporte · escudos y rivales | cuenta regresiva
+// Tarjeta de evento (compacta): hora | escudos y rivales | cuenta regresiva
 // ---------------------------------------------------------------------------
-
-/// Ícono del deporte según el texto de deporte / competición.
-IconData sportIcon(String sport, String league) {
-  final s = _fold('$sport $league');
-  bool any(List<String> keys) => keys.any(s.contains);
-  if (any(['futbol americano', 'american football', 'nfl'])) {
-    return Icons.sports_football_rounded;
-  }
-  if (any(['basquet', 'baloncesto', 'basket', 'nba'])) {
-    return Icons.sports_basketball_rounded;
-  }
-  if (any(['tenis', 'tennis'])) return Icons.sports_tennis_rounded;
-  if (any(['beisbol', 'baseball', 'mlb'])) return Icons.sports_baseball_rounded;
-  if (any(['hockey', 'nhl'])) return Icons.sports_hockey_rounded;
-  if (any(['rugby'])) return Icons.sports_rugby_rounded;
-  if (any(['voley', 'volley'])) return Icons.sports_volleyball_rounded;
-  if (any(['motociclismo', 'motogp', 'moto '])) return Icons.two_wheeler_rounded;
-  if (any(['ciclismo', 'cycling'])) return Icons.directions_bike_rounded;
-  if (any(['automovilismo', 'formula', 'rally', 'motorsport', 'nascar'])) {
-    return Icons.sports_motorsports_rounded;
-  }
-  if (any(['mma', 'ufc'])) return Icons.sports_mma_rounded;
-  if (any(['boxeo', 'boxing'])) return Icons.sports_martial_arts_rounded;
-  if (any(['golf'])) return Icons.sports_golf_rounded;
-  if (any(['futbol', 'soccer', 'football'])) return Icons.sports_soccer_rounded;
-  return Icons.sports_rounded;
-}
 
 /// Escudo del equipo (URL del panel) o, si no hay, sus iniciales.
 class _Crest extends StatelessWidget {
-  const _Crest({required this.url, required this.name, this.size = 28});
+  const _Crest({required this.url, required this.name, this.size = 22});
 
   final String? url;
   final String name;
@@ -1157,12 +1130,12 @@ class _TeamRow extends StatelessWidget {
     return Row(
       children: [
         _Crest(url: logo, name: name),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
           child: _Hl(
             name,
             terms,
-            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
           ),
         ),
       ],
@@ -1189,18 +1162,17 @@ class _CdCell extends StatelessWidget {
               _p2(value),
               maxLines: 1,
               style: const TextStyle(
-                fontSize: 17,
+                fontSize: 15,
                 fontWeight: FontWeight.w700,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
           ),
-          const SizedBox(height: 1),
           Text(
             unit,
             maxLines: 1,
             style: TextStyle(
-              fontSize: 8.5,
+              fontSize: 8,
               letterSpacing: 0.4,
               fontWeight: FontWeight.w600,
               color: _muted(context),
@@ -1224,22 +1196,24 @@ class _RightBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final muted = TextStyle(fontSize: 11, color: _muted(context));
     if (event.liveNow) {
-      return const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _PulsingLive(),
-          SizedBox(height: 3),
-          Text(
-            'EN VIVO',
-            style: TextStyle(
-              color: Pal.live,
-              fontWeight: FontWeight.w800,
-              fontSize: 12.5,
-              letterSpacing: 0.6,
+      // La señal (ondas) va pegada al texto, en la misma línea.
+      return const Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PulsingLive(size: 18),
+            SizedBox(width: 4),
+            Text(
+              'EN VIVO',
+              style: TextStyle(
+                color: Pal.live,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                letterSpacing: 0.4,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
     final label = event.stateLabel;
@@ -1274,11 +1248,9 @@ class _RightBlock extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            big,
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+            days > 1 ? '$big días' : big,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
           ),
-          if (days > 1) Text('días', style: muted),
-          const SizedBox(height: 2),
           Text('Hora a confirmar', style: muted, textAlign: TextAlign.center),
         ],
       );
@@ -1289,28 +1261,26 @@ class _RightBlock extends StatelessWidget {
     }
     // Redondea hacia arriba para que el último segundo sea 00:00:00:01.
     final secs = (left.inMilliseconds / 1000).ceil();
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('Empieza en', style: muted),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            _CdCell(value: secs ~/ 86400, unit: 'DÍAS'),
-            _CdCell(value: (secs % 86400) ~/ 3600, unit: 'HRS'),
-            _CdCell(value: (secs % 3600) ~/ 60, unit: 'MIN'),
-            _CdCell(value: secs % 60, unit: 'SEG'),
-          ],
-        ),
-      ],
+    final days = secs ~/ 86400;
+    // Cuando ya falta menos de un día, la cuenta va en horas y no muestra días.
+    return Center(
+      child: Row(
+        children: [
+          if (days > 0) _CdCell(value: days, unit: 'DÍAS'),
+          _CdCell(value: (secs % 86400) ~/ 3600, unit: 'HRS'),
+          _CdCell(value: (secs % 3600) ~/ 60, unit: 'MIN'),
+          _CdCell(value: secs % 60, unit: 'SEG'),
+        ],
+      ),
     );
   }
 }
 
 /// Ícono de transmisión que late (ondas rojas), como en la referencia.
 class _PulsingLive extends StatefulWidget {
-  const _PulsingLive();
+  const _PulsingLive({this.size = 24});
+
+  final double size;
 
   @override
   State<_PulsingLive> createState() => _PulsingLiveState();
@@ -1340,7 +1310,7 @@ class _PulsingLiveState extends State<_PulsingLive>
           child: Transform.scale(scale: 0.9 + 0.2 * v, child: child),
         );
       },
-      child: const Icon(Icons.sensors_rounded, size: 24, color: Pal.live),
+      child: Icon(Icons.sensors_rounded, size: widget.size, color: Pal.live),
     );
   }
 }
@@ -1366,18 +1336,18 @@ class _TimeColumn extends StatelessWidget {
         Text(
           k == null || event.timeTbc ? '--:--' : fmtHm(k),
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: FontWeight.w500,
             color: muted,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 1),
         if (live && m != null)
           Text(
             m,
             style: const TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.w700,
               color: Pal.live,
             ),
@@ -1386,7 +1356,7 @@ class _TimeColumn extends StatelessWidget {
           Text(
             _dayLabel(k),
             style: const TextStyle(
-              fontSize: 11.5,
+              fontSize: 10.5,
               fontWeight: FontWeight.w600,
               color: Pal.accent,
             ),
@@ -1419,7 +1389,7 @@ class _EventCard extends StatelessWidget {
         final now = syncedNow();
         final live = event.liveNow;
         return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.only(bottom: 8),
           child: Material(
             color: _cardColor(context),
             shape: RoundedRectangleBorder(
@@ -1438,7 +1408,7 @@ class _EventCard extends StatelessWidget {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 4, 4, 0),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 2, 0),
                     child: Row(
                       children: [
                         Expanded(
@@ -1446,7 +1416,7 @@ class _EventCard extends StatelessWidget {
                             event.league,
                             terms,
                             style: const TextStyle(
-                              fontSize: 12.5,
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -1456,7 +1426,7 @@ class _EventCard extends StatelessWidget {
                             padding: EdgeInsets.only(right: 2),
                             child: Icon(
                               Icons.play_circle_fill_rounded,
-                              size: 18,
+                              size: 16,
                               color: Pal.accent,
                             ),
                           ),
@@ -1470,22 +1440,12 @@ class _EventCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         SizedBox(
-                          width: 58,
+                          width: 50,
                           child: _TimeColumn(event: event, now: now),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 10),
-                          child: Center(
-                            child: Icon(
-                              sportIcon(event.sport, event.league),
-                              size: 22,
-                              color: _muted(context),
-                            ),
-                          ),
                         ),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            padding: const EdgeInsets.fromLTRB(2, 7, 6, 7),
                             child: event.away.isEmpty
                                 ? Align(
                                     alignment: Alignment.centerLeft,
@@ -1494,7 +1454,7 @@ class _EventCard extends StatelessWidget {
                                       terms,
                                       maxLines: 3,
                                       style: const TextStyle(
-                                        fontSize: 14.5,
+                                        fontSize: 13.5,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -1508,7 +1468,7 @@ class _EventCard extends StatelessWidget {
                                         logo: event.homeLogo,
                                         terms: terms,
                                       ),
-                                      const SizedBox(height: 8),
+                                      const SizedBox(height: 5),
                                       _TeamRow(
                                         name: event.away,
                                         logo: event.awayLogo,
@@ -1521,16 +1481,16 @@ class _EventCard extends StatelessWidget {
                         VerticalDivider(
                           width: 1,
                           thickness: 1,
-                          indent: 10,
-                          endIndent: 10,
+                          indent: 8,
+                          endIndent: 8,
                           color: border,
                         ),
                         SizedBox(
-                          width: 132,
+                          width: 112,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 8,
+                              horizontal: 6,
+                              vertical: 4,
                             ),
                             child: _RightBlock(event: event, now: now),
                           ),

@@ -37,13 +37,6 @@ void main() {
     expect(e.timeTbc, isTrue);
   });
 
-  test('sportIcon reconoce los deportes del calendario', () {
-    expect(sportIcon('Fútbol americano', 'NFL'), Icons.sports_football_rounded);
-    expect(sportIcon('Motociclismo', 'MotoGP'), Icons.two_wheeler_rounded);
-    expect(sportIcon('Ciclismo', 'UCI WorldTour'), Icons.directions_bike_rounded);
-    expect(sportIcon('Fútbol', 'Premier League'), Icons.sports_soccer_rounded);
-  });
-
   test('LiveEvent.fromJson lee el minuto del partido', () {
     final e = LiveEvent.fromJson({'id': 'm1', 'live': true, 'minute': 22});
     expect(e.minute, '22');
