@@ -62,9 +62,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Instalación</title>
-<link rel="icon" href="assets/favicon.ico?v=1.0.21" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.21">
-<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.21">
+<link rel="icon" href="assets/favicon.ico?v=1.0.22" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.22">
+<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.22">
 <meta name="theme-color" content="#101722">
 <style>
   body { margin:0; font-family: system-ui, "Segoe UI", sans-serif; background:#0b1422; color:#e8eef9; }

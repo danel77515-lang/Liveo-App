@@ -240,6 +240,11 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   /// (publicidad): solo se navega dentro del mismo sitio del iframe.
   WebViewController _buildWeb(StreamSource s) {
     final uri = Uri.parse(s.url);
+    final embed = s.embed;
+    // Con código iframe, la página base es el Referer (si hay) o el sitio del propio
+    // iframe: así el embed ve un «padre» como en la web original.
+    final base = (s.referer != null ? Uri.tryParse(s.referer!) : null) ?? uri;
+    final allowedHosts = <String>{uri.host, if (base.host.isNotEmpty) base.host};
     final c = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -257,7 +262,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             if (u == null) return NavigationDecision.prevent;
             if (u.scheme == 'about') return NavigationDecision.navigate;
             final web = u.scheme == 'http' || u.scheme == 'https';
-            return web && _sameSite(u.host, uri.host)
+            return web && allowedHosts.any((h) => _sameSite(u.host, h))
                 ? NavigationDecision.navigate
                 : NavigationDecision.prevent;
           },
@@ -272,8 +277,21 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         ),
       );
     if (s.userAgent != null) c.setUserAgent(s.userAgent);
-    c.loadRequest(uri, headers: {if (s.referer != null) 'Referer': s.referer!});
+    if (embed != null) {
+      c.loadHtmlString(_embedPage(embed), baseUrl: '${base.scheme}://${base.host}/');
+    } else {
+      c.loadRequest(uri, headers: {if (s.referer != null) 'Referer': s.referer!});
+    }
     return c;
+  }
+
+  /// Página mínima que muestra el iframe del panel a pantalla completa.
+  String _embedPage(String iframe) {
+    return '<!DOCTYPE html><html><head>'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<style>html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden}'
+        'iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>'
+        '</head><body>$iframe</body></html>';
   }
 
   /// Mismo sitio = mismo dominio base (www.x.com y cdn.x.com cuentan igual).

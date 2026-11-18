@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS event_sources (
   away VARCHAR(120) NULL,
   league VARCHAR(160) NULL,
   kickoff INT UNSIGNED NULL,
+  kind VARCHAR(8) NOT NULL DEFAULT 'hls',
+  embed TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY idx_event (event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

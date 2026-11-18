@@ -9,6 +9,13 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.22
+- **Enlaces iframe corregidos:** al pegar el código `<iframe …>` en un enlace del panel, ahora se **guarda el iframe**
+  (limpio: `src`, `allow`, `allowfullscreen`, `referrerpolicy`, `sandbox`…) además de su URL, y la app lo **carga tal cual**
+  dentro del reproductor (como en la web original), en vez de abrir solo la URL suelta. Se aceptan comillas dobles,
+  simples o sin comillas, varias líneas y `src="//…"`. Al editar el enlace, el campo muestra el código iframe guardado.
+- Nueva columna `embed` en `event_sources` (la base se migra sola al abrir el panel una vez).
+
 ## Cambios 1.0.21
 - **Enlaces iframe además de m3u8:** en `admin/ →` evento puedes pegar una URL m3u8, la URL de una página web o el
   **código `<iframe …>` completo** (se toma su `src`). El «Tipo» es automático (`.m3u8` = reproductor de Liveo;

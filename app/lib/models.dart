@@ -74,6 +74,7 @@ class StreamSource {
     this.referer,
     this.userAgent,
     this.isIframe = false,
+    this.embed,
   });
 
   final int id;
@@ -84,6 +85,10 @@ class StreamSource {
 
   /// true = página web embebida (iframe); false = stream m3u8 (HLS).
   final bool isIframe;
+
+  /// Código <iframe …> limpio que mandó el panel (si lo hay): se carga tal cual
+  /// dentro del WebView, igual que en la página original.
+  final String? embed;
 
   /// true si el servidor del stream exige cabeceras (Chromecast no las envía).
   bool get needsHeaders => referer != null || userAgent != null;
@@ -109,6 +114,7 @@ class StreamSource {
       referer: opt(raw['referer']),
       userAgent: opt(raw['user_agent']),
       isIframe: raw['type'] == 'iframe',
+      embed: raw['type'] == 'iframe' ? opt(raw['embed']) : null,
     );
   }
 }

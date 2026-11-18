@@ -115,6 +115,7 @@ function read_source_fields(): array
         'label'      => trim((string)($_POST['label'] ?? '')),
         'url'        => '',
         'kind'       => 'hls',
+        'embed'      => '',
         'referer'    => trim((string)($_POST['referer'] ?? '')),
         'user_agent' => trim((string)($_POST['user_agent'] ?? '')),
         'err'        => null,
@@ -123,6 +124,7 @@ function read_source_fields(): array
     $p = parse_source_input((string)($_POST['url'] ?? ''), (string)($_POST['kind'] ?? 'auto'));
     $f['url'] = $p['url'];
     $f['kind'] = $p['kind'];
+    $f['embed'] = (string)($p['embed'] ?? '');
     if (strlen($f['label']) > 60) {
         $f['err'] = 'El nombre del enlace admite hasta 60 caracteres.';
     } elseif ($p['err'] !== null) {
@@ -391,13 +393,14 @@ if ($method === 'POST' && !$fatal) {
                 }
                 $kick = (int)($_POST['kickoff'] ?? 0);
                 $pdo->prepare(
-                    'INSERT INTO event_sources (event_id, label, url, kind, referer, user_agent, sort_order, active, home, away, league, kickoff)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                    'INSERT INTO event_sources (event_id, label, url, kind, embed, referer, user_agent, sort_order, active, home, away, league, kickoff)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
                 )->execute([
                     $eid,
                     $f['label'] !== '' ? $f['label'] : 'Fuente ' . ($n + 1),
                     $f['url'],
                     $f['kind'],
+                    $f['embed'] !== '' ? $f['embed'] : null,
                     $f['referer'] !== '' ? $f['referer'] : null,
                     $f['user_agent'] !== '' ? $f['user_agent'] : null,
                     $n,
@@ -428,8 +431,8 @@ if ($method === 'POST' && !$fatal) {
                 $n = (int)$st->fetchColumn();
                 $kick = (int)($_POST['kickoff'] ?? 0);
                 $ins = $pdo->prepare(
-                    'INSERT INTO event_sources (event_id, label, url, kind, referer, user_agent, sort_order, active, home, away, league, kickoff)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                    'INSERT INTO event_sources (event_id, label, url, kind, embed, referer, user_agent, sort_order, active, home, away, league, kickoff)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
                 );
                 $added = 0;
                 $skipped = 0;
@@ -457,6 +460,7 @@ if ($method === 'POST' && !$fatal) {
                     }
                     $ins->execute([
                         $eid, $label !== '' ? $label : 'Fuente ' . ($n + 1), $url, $p['kind'],
+                        ($p['embed'] ?? '') !== '' ? $p['embed'] : null,
                         $referer !== '' ? $referer : null, $ua !== '' ? $ua : null, $n,
                         substr(trim((string)($_POST['home'] ?? '')), 0, 120),
                         substr(trim((string)($_POST['away'] ?? '')), 0, 120),
@@ -503,11 +507,12 @@ if ($method === 'POST' && !$fatal) {
                         flash('bad', $f['err']);
                     } else {
                         $pdo->prepare(
-                            'UPDATE event_sources SET label = ?, url = ?, kind = ?, referer = ?, user_agent = ?, sort_order = ? WHERE id = ?'
+                            'UPDATE event_sources SET label = ?, url = ?, kind = ?, embed = ?, referer = ?, user_agent = ?, sort_order = ? WHERE id = ?'
                         )->execute([
                             $f['label'] !== '' ? $f['label'] : (string)$row['label'],
                             $f['url'],
                             $f['kind'],
+                            $f['embed'] !== '' ? $f['embed'] : null,
                             $f['referer'] !== '' ? $f['referer'] : null,
                             $f['user_agent'] !== '' ? $f['user_agent'] : null,
                             max(0, min(99, (int)($_POST['sort_order'] ?? 0))),
@@ -928,7 +933,7 @@ if ($fatal) {
                 <label>Orden<input name="sort_order" type="number" min="0" max="99" value="<?= (int)$r['sort_order'] ?>"></label>
               </div>
               <div class="grid">
-                <label>URL o código &lt;iframe&gt;<input name="url" value="<?= h($r['url']) ?>" maxlength="2500" required></label>
+                <label>URL o código &lt;iframe&gt;<input name="url" value="<?= h(trim((string)($r['embed'] ?? '')) !== '' ? (string)$r['embed'] : (string)$r['url']) ?>" maxlength="2500" required></label>
                 <label>Tipo
                   <select name="kind">
                     <option value="hls" <?= (string)$r['kind'] !== 'iframe' ? 'selected' : '' ?>>m3u8 (reproductor de Liveo)</option>
@@ -945,7 +950,7 @@ if ($fatal) {
                 <button name="a" value="test" class="alt">Probar</button>
                 <button name="a" value="toggle" class="alt"><?= (int)$r['active'] === 1 ? 'Desactivar' : 'Activar' ?></button>
                 <button name="a" value="delete" class="danger" onclick="return confirm('¿Eliminar este enlace?')">Eliminar</button>
-                <?php if ((string)$r['kind'] === 'iframe'): ?><span class="tag">iframe</span><?php endif; ?>
+                <?php if ((string)$r['kind'] === 'iframe'): ?><span class="tag">iframe<?= trim((string)($r['embed'] ?? '')) !== '' ? ' (código guardado)' : '' ?></span><?php endif; ?>
                 <?php if ((int)$r['active'] !== 1): ?><span class="tag">Desactivado</span><?php endif; ?>
               </div>
             </form>
@@ -964,7 +969,7 @@ if ($fatal) {
               <label>Nombre (ej. Fuente HD)<input name="label" value="<?= h((string)($pre['label'] ?? '')) ?>" maxlength="60"></label>
             </div>
             <div class="grid">
-              <label>URL m3u8, página web o código &lt;iframe&gt;<input name="url" value="<?= h((string)($pre['url'] ?? '')) ?>" placeholder="https://…/index.m3u8  ·  https://…/embed/123  ·  &lt;iframe src=…&gt;" maxlength="2500" required></label>
+              <label>URL m3u8, página web o código &lt;iframe&gt;<input name="url" value="<?= h(trim((string)($pre['embed'] ?? '')) !== '' ? (string)$pre['embed'] : (string)($pre['url'] ?? '')) ?>" placeholder="https://…/index.m3u8  ·  https://…/embed/123  ·  &lt;iframe src=…&gt;" maxlength="2500" required></label>
               <label>Tipo
                 <select name="kind">
                   <option value="auto">Automático</option>
@@ -982,7 +987,7 @@ if ($fatal) {
               <button name="a" value="test_url" class="alt">Probar antes de agregar</button>
             </div>
           </form>
-          <p class="mut">Puedes pegar la URL de un .m3u8 o <b>el código <code>&lt;iframe …&gt;</code> completo</b> (se toma su <code>src</code>): los iframe se abren dentro del reproductor de la app. «Automático» detecta .m3u8; cualquier otra URL se trata como iframe. Referer y User-Agent solo hacen falta si el servidor los exige. El Chromecast no puede enviarlos ni transmitir iframes.</p>
+          <p class="mut">Puedes pegar la URL de un .m3u8 o <b>el código <code>&lt;iframe …&gt;</code> completo</b> (se guarda el iframe y también su <code>src</code>): los iframe se abren dentro del reproductor de la app, cargados tal cual los pegaste. «Automático» detecta .m3u8; cualquier otra URL se trata como iframe. Referer y User-Agent solo hacen falta si el servidor los exige. El Chromecast no puede enviarlos ni transmitir iframes.</p>
         </div>
 
         <div class="card">
@@ -1260,9 +1265,9 @@ $view = admin_view();
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.21" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.21">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.21">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.22" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.22">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.22">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -1328,7 +1333,7 @@ $view = admin_view();
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.21" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.22" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
       <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new', 'event'], true) ? 'on' : '' ?>">Eventos</a>
