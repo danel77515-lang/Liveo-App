@@ -57,7 +57,12 @@ void main() {
       'id': 'e1',
       'live': false,
       'links': [
-        {'id': 3, 'label': 'HD', 'url': 'https://x.test/a.m3u8', 'referer': 'https://x.test/'},
+        {
+          'id': 3,
+          'label': 'HD',
+          'url': 'https://x.test/a.m3u8',
+          'referer': 'https://x.test/',
+        },
         {'id': 4, 'label': 'Mala', 'url': 'ftp://x.test/a.m3u8'},
       ],
     });
@@ -71,5 +76,19 @@ void main() {
     final e = LiveEvent.fromJson({'id': 'e2'});
     expect(e.links, isEmpty);
     expect(e.playable, isFalse);
+  });
+
+  test('LiveEvent.fromJson distingue enlaces m3u8 e iframe', () {
+    final e = LiveEvent.fromJson({
+      'id': 'e3',
+      'links': [
+        {'id': 1, 'label': 'HD', 'url': 'https://x.test/a.m3u8', 'type': 'hls'},
+        {'id': 2, 'label': 'Web', 'url': 'https://x.test/embed/9', 'type': 'iframe'},
+      ],
+    });
+    expect(e.links.length, 2);
+    expect(e.links[0].isIframe, isFalse);
+    expect(e.links[1].isIframe, isTrue);
+    expect(e.playable, isTrue);
   });
 }

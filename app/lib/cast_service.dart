@@ -45,7 +45,8 @@ class CastService {
 
   /// Emite true/false cuando cambia la sesión de transmisión.
   static Stream<bool> get connectedStream => GoogleCastSessionManager
-      .instance.currentSessionStream
+      .instance
+      .currentSessionStream
       .map((_) => connected);
 
   static Stream<List<GoogleCastDevice>> get devices =>

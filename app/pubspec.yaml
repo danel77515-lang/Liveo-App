@@ -1,7 +1,7 @@
 name: liveo
 description: Aplicación deportiva Liveo
 publish_to: none
-version: 1.0.20+19
+version: 1.0.21+20
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   http: ^1.2.2
   shared_preferences: ^2.3.2
+  # Fuentes iframe (páginas web embebidas) dentro del reproductor.
+  webview_flutter: ^4.10.0
   video_player: ^2.9.2
   # Chromecast (Google Cast). Versión fija: la API cambia entre versiones.
   flutter_chrome_cast: 2.0.0

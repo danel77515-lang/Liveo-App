@@ -113,15 +113,20 @@ function read_source_fields(): array
 {
     $f = [
         'label'      => trim((string)($_POST['label'] ?? '')),
-        'url'        => trim((string)($_POST['url'] ?? '')),
+        'url'        => '',
+        'kind'       => 'hls',
         'referer'    => trim((string)($_POST['referer'] ?? '')),
         'user_agent' => trim((string)($_POST['user_agent'] ?? '')),
         'err'        => null,
     ];
+    // Acepta una URL m3u8, la URL de una página web o el código <iframe …> completo.
+    $p = parse_source_input((string)($_POST['url'] ?? ''), (string)($_POST['kind'] ?? 'auto'));
+    $f['url'] = $p['url'];
+    $f['kind'] = $p['kind'];
     if (strlen($f['label']) > 60) {
         $f['err'] = 'El nombre del enlace admite hasta 60 caracteres.';
-    } elseif ($f['url'] === '' || strlen($f['url']) > 1000 || !preg_match('#^https?://\S+$#i', $f['url'])) {
-        $f['err'] = 'La URL debe empezar con http:// o https://, sin espacios (máximo 1000 caracteres).';
+    } elseif ($p['err'] !== null) {
+        $f['err'] = $p['err'];
     } elseif ($f['referer'] !== '' && (strlen($f['referer']) > 500 || !preg_match('#^https?://\S+$#i', $f['referer']))) {
         $f['err'] = 'El Referer debe ser una URL http(s) válida.';
     } elseif (strlen($f['user_agent']) > 300 || preg_match('/[\r\n]/', $f['user_agent'])) {
@@ -371,7 +376,9 @@ if ($method === 'POST' && !$fatal) {
                     go($back);
                 }
                 if ($a === 'test_url') {
-                    $m = probe_message(probe_m3u8($f['url'], $f['referer'], $f['user_agent']));
+                    $m = probe_message($f['kind'] === 'iframe'
+                        ? probe_page($f['url'], $f['referer'], $f['user_agent'])
+                        : probe_m3u8($f['url'], $f['referer'], $f['user_agent']));
                     flash($m[0], $m[1]);
                     go($back);
                 }
@@ -384,12 +391,13 @@ if ($method === 'POST' && !$fatal) {
                 }
                 $kick = (int)($_POST['kickoff'] ?? 0);
                 $pdo->prepare(
-                    'INSERT INTO event_sources (event_id, label, url, referer, user_agent, sort_order, active, home, away, league, kickoff)
-                     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                    'INSERT INTO event_sources (event_id, label, url, kind, referer, user_agent, sort_order, active, home, away, league, kickoff)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
                 )->execute([
                     $eid,
                     $f['label'] !== '' ? $f['label'] : 'Fuente ' . ($n + 1),
                     $f['url'],
+                    $f['kind'],
                     $f['referer'] !== '' ? $f['referer'] : null,
                     $f['user_agent'] !== '' ? $f['user_agent'] : null,
                     $n,
@@ -399,7 +407,7 @@ if ($method === 'POST' && !$fatal) {
                     $kick > 0 ? $kick : null,
                 ]);
                 unset($_SESSION['prefill']);
-                flash('ok', 'Enlace agregado.' . (stripos($f['url'], '.m3u8') === false ? ' Aviso: la URL no contiene ".m3u8".' : ''));
+                flash('ok', ($f['kind'] === 'iframe' ? 'Enlace iframe agregado.' : 'Enlace agregado.') . ($f['kind'] === 'hls' && stripos($f['url'], '.m3u8') === false ? ' Aviso: la URL no contiene ".m3u8".' : ''));
                 go($back);
                 break;
 
@@ -420,8 +428,8 @@ if ($method === 'POST' && !$fatal) {
                 $n = (int)$st->fetchColumn();
                 $kick = (int)($_POST['kickoff'] ?? 0);
                 $ins = $pdo->prepare(
-                    'INSERT INTO event_sources (event_id, label, url, referer, user_agent, sort_order, active, home, away, league, kickoff)
-                     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                    'INSERT INTO event_sources (event_id, label, url, kind, referer, user_agent, sort_order, active, home, away, league, kickoff)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
                 );
                 $added = 0;
                 $skipped = 0;
@@ -431,20 +439,24 @@ if ($method === 'POST' && !$fatal) {
                         continue;
                     }
                     $label = '';
-                    $url = $line;
-                    if (strpos($line, '|') !== false) {
-                        [$label, $url] = array_map('trim', explode('|', $line, 2));
+                    $raw = $line;
+                    // «Nombre | URL» (el nombre va antes de la primera barra; sin < ni http).
+                    if (preg_match('/^([^|<]{1,60})\|(.+)$/s', $line, $mm) === 1 && stripos($mm[1], 'http') === false) {
+                        $label = trim($mm[1]);
+                        $raw = trim($mm[2]);
                     }
-                    if (strlen($label) > 60 || strlen($url) > 1000 || !preg_match('#^https?://\S+$#i', $url)) {
+                    $p = parse_source_input($raw, 'auto');
+                    if ($p['err'] !== null) {
                         $skipped++;
                         continue;
                     }
+                    $url = $p['url'];
                     if ($n >= 10) {
                         $skipped++;
                         continue;
                     }
                     $ins->execute([
-                        $eid, $label !== '' ? $label : 'Fuente ' . ($n + 1), $url,
+                        $eid, $label !== '' ? $label : 'Fuente ' . ($n + 1), $url, $p['kind'],
                         $referer !== '' ? $referer : null, $ua !== '' ? $ua : null, $n,
                         substr(trim((string)($_POST['home'] ?? '')), 0, 120),
                         substr(trim((string)($_POST['away'] ?? '')), 0, 120),
@@ -455,8 +467,8 @@ if ($method === 'POST' && !$fatal) {
                     $added++;
                 }
                 flash($added > 0 ? 'ok' : 'bad', $added > 0
-                    ? 'Enlaces agregados: ' . $added . ($skipped > 0 ? ' (' . $skipped . ' omitidos: URL inválida o tope de 10 por evento)' : '') . '.'
-                    : 'No se agregó ninguno: revisa que cada línea sea una URL http(s) (o «Nombre | URL»).');
+                    ? 'Enlaces agregados: ' . $added . ($skipped > 0 ? ' (' . $skipped . ' omitidos: inválidos o tope de 10 por evento)' : '') . '.'
+                    : 'No se agregó ninguno: cada línea debe ser una URL http(s), un código <iframe …> o «Nombre | URL».');
                 go($back);
                 break;
 
@@ -481,7 +493,9 @@ if ($method === 'POST' && !$fatal) {
                     $pdo->prepare('UPDATE event_sources SET active = 1 - active WHERE id = ?')->execute([$id]);
                     flash('ok', ((int)$row['active'] === 1) ? 'Enlace desactivado (la app ya no lo muestra).' : 'Enlace activado.');
                 } elseif ($a === 'test') {
-                    $m = probe_message(probe_m3u8((string)$row['url'], $row['referer'], $row['user_agent']));
+                    $m = probe_message((string)$row['kind'] === 'iframe'
+                        ? probe_page((string)$row['url'], $row['referer'], $row['user_agent'])
+                        : probe_m3u8((string)$row['url'], $row['referer'], $row['user_agent']));
                     flash($m[0], '«' . $row['label'] . '»: ' . substr($m[1], 0, 400));
                 } else {
                     $f = read_source_fields();
@@ -489,10 +503,11 @@ if ($method === 'POST' && !$fatal) {
                         flash('bad', $f['err']);
                     } else {
                         $pdo->prepare(
-                            'UPDATE event_sources SET label = ?, url = ?, referer = ?, user_agent = ?, sort_order = ? WHERE id = ?'
+                            'UPDATE event_sources SET label = ?, url = ?, kind = ?, referer = ?, user_agent = ?, sort_order = ? WHERE id = ?'
                         )->execute([
                             $f['label'] !== '' ? $f['label'] : (string)$row['label'],
                             $f['url'],
+                            $f['kind'],
                             $f['referer'] !== '' ? $f['referer'] : null,
                             $f['user_agent'] !== '' ? $f['user_agent'] : null,
                             max(0, min(99, (int)($_POST['sort_order'] ?? 0))),
@@ -912,7 +927,15 @@ if ($fatal) {
                 <label>Nombre<input name="label" value="<?= h($r['label']) ?>" maxlength="60"></label>
                 <label>Orden<input name="sort_order" type="number" min="0" max="99" value="<?= (int)$r['sort_order'] ?>"></label>
               </div>
-              <label>URL m3u8<input name="url" value="<?= h($r['url']) ?>" maxlength="1000" required></label>
+              <div class="grid">
+                <label>URL o código &lt;iframe&gt;<input name="url" value="<?= h($r['url']) ?>" maxlength="2500" required></label>
+                <label>Tipo
+                  <select name="kind">
+                    <option value="hls" <?= (string)$r['kind'] !== 'iframe' ? 'selected' : '' ?>>m3u8 (reproductor de Liveo)</option>
+                    <option value="iframe" <?= (string)$r['kind'] === 'iframe' ? 'selected' : '' ?>>iframe (página web)</option>
+                  </select>
+                </label>
+              </div>
               <div class="grid">
                 <label>Referer (opcional)<input name="referer" value="<?= h((string)$r['referer']) ?>" maxlength="500"></label>
                 <label>User-Agent (opcional)<input name="user_agent" value="<?= h((string)$r['user_agent']) ?>" maxlength="300"></label>
@@ -922,6 +945,7 @@ if ($fatal) {
                 <button name="a" value="test" class="alt">Probar</button>
                 <button name="a" value="toggle" class="alt"><?= (int)$r['active'] === 1 ? 'Desactivar' : 'Activar' ?></button>
                 <button name="a" value="delete" class="danger" onclick="return confirm('¿Eliminar este enlace?')">Eliminar</button>
+                <?php if ((string)$r['kind'] === 'iframe'): ?><span class="tag">iframe</span><?php endif; ?>
                 <?php if ((int)$r['active'] !== 1): ?><span class="tag">Desactivado</span><?php endif; ?>
               </div>
             </form>
@@ -939,7 +963,16 @@ if ($fatal) {
             <div class="grid">
               <label>Nombre (ej. Fuente HD)<input name="label" value="<?= h((string)($pre['label'] ?? '')) ?>" maxlength="60"></label>
             </div>
-            <label>URL m3u8<input name="url" value="<?= h((string)($pre['url'] ?? '')) ?>" placeholder="https://…/index.m3u8" maxlength="1000" required></label>
+            <div class="grid">
+              <label>URL m3u8, página web o código &lt;iframe&gt;<input name="url" value="<?= h((string)($pre['url'] ?? '')) ?>" placeholder="https://…/index.m3u8  ·  https://…/embed/123  ·  &lt;iframe src=…&gt;" maxlength="2500" required></label>
+              <label>Tipo
+                <select name="kind">
+                  <option value="auto">Automático</option>
+                  <option value="hls" <?= (string)($pre['kind'] ?? '') === 'hls' ? 'selected' : '' ?>>m3u8 (reproductor de Liveo)</option>
+                  <option value="iframe" <?= (string)($pre['kind'] ?? '') === 'iframe' ? 'selected' : '' ?>>iframe (página web)</option>
+                </select>
+              </label>
+            </div>
             <div class="grid">
               <label>Referer (opcional)<input name="referer" value="<?= h((string)($pre['referer'] ?? '')) ?>" maxlength="500"></label>
               <label>User-Agent (opcional)<input name="user_agent" value="<?= h((string)($pre['user_agent'] ?? '')) ?>" maxlength="300"></label>
@@ -949,7 +982,7 @@ if ($fatal) {
               <button name="a" value="test_url" class="alt">Probar antes de agregar</button>
             </div>
           </form>
-          <p class="mut">Referer y User-Agent solo hacen falta si el servidor del stream los exige. El Chromecast no puede enviarlos, así que esas fuentes se verán en el teléfono pero quizá no al transmitir.</p>
+          <p class="mut">Puedes pegar la URL de un .m3u8 o <b>el código <code>&lt;iframe …&gt;</code> completo</b> (se toma su <code>src</code>): los iframe se abren dentro del reproductor de la app. «Automático» detecta .m3u8; cualquier otra URL se trata como iframe. Referer y User-Agent solo hacen falta si el servidor los exige. El Chromecast no puede enviarlos ni transmitir iframes.</p>
         </div>
 
         <div class="card">
@@ -960,8 +993,8 @@ if ($fatal) {
             <input type="hidden" name="away" value="<?= h($away) ?>">
             <input type="hidden" name="league" value="<?= h($league) ?>">
             <input type="hidden" name="kickoff" value="<?= (int)$kick ?>">
-            <label>Un enlace por línea: <code>Nombre | URL</code> (el nombre es opcional)
-              <textarea name="bulk" rows="5" placeholder="Fuente HD | https://…/hd/index.m3u8&#10;Fuente SD | https://…/sd/index.m3u8&#10;https://…/otra.m3u8" style="width:100%"></textarea>
+            <label>Un enlace por línea: <code>Nombre | URL</code> o <code>Nombre | &lt;iframe …&gt;</code> (el nombre es opcional)
+              <textarea name="bulk" rows="5" placeholder="Fuente HD | https://…/hd/index.m3u8&#10;Web | https://…/embed/123&#10;Otra | &lt;iframe src=&quot;https://…&quot;&gt;&lt;/iframe&gt;" style="width:100%"></textarea>
             </label>
             <div class="grid">
               <label>Referer común (opcional)<input name="referer" maxlength="500"></label>
@@ -1227,9 +1260,9 @@ $view = admin_view();
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Administración</title>
-<link rel="icon" href="../assets/favicon.ico?v=1.0.20" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.20">
-<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.20">
+<link rel="icon" href="../assets/favicon.ico?v=1.0.21" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/liveo_icon.png?v=1.0.21">
+<link rel="apple-touch-icon" href="../assets/liveo_icon.png?v=1.0.21">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme: dark; --bg:#0a1019; --panel:#111b29; --panel2:#162235; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --accent:#70dfb0; --accent2:#49b98e; --bad:#ff737d; --shadow:0 18px 48px rgba(0,0,0,.22); }
@@ -1295,7 +1328,7 @@ $view = admin_view();
 <body>
 <main>
   <header>
-    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.20" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
+    <div class="brand"><img src="../assets/liveo_icon.png?v=1.0.21" alt="Liveo" width="48" height="48"><div><h1>LIVEO</h1><small>Centro de administración · v<?= h(LIVEO_VERSION) ?></small></div></div>
     <?php if ($nav): ?>
     <nav>
       <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new', 'event'], true) ? 'on' : '' ?>">Eventos</a>

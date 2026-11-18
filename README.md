@@ -9,6 +9,15 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.21
+- **Enlaces iframe además de m3u8:** en `admin/ →` evento puedes pegar una URL m3u8, la URL de una página web o el
+  **código `<iframe …>` completo** (se toma su `src`). El «Tipo» es automático (`.m3u8` = reproductor de Liveo;
+  cualquier otra URL = iframe) o se elige a mano. También funciona en «Agregar varios enlaces a la vez».
+- En la app, los iframe se abren **dentro del reproductor** (WebView), también en vertical. Se bloquean las
+  redirecciones a otros sitios (publicidad) y no se pueden transmitir por Chromecast. Vuelve la dependencia
+  `webview_flutter`.
+- Al actualizar, la base se migra sola (columna `kind` en `event_sources`).
+
 ## Cambios 1.0.20
 - **Filtros del inicio:** `Todos · En vivo · Hoy · Próximos` (Próximos = desde pasado mañana, p. ej. 20/11) y un
   nuevo **filtro de deportes** (chip «Deporte»), con los deportes que haya en el calendario.

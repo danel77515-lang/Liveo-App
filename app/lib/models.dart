@@ -37,8 +37,10 @@ DateTime? _time(Object? v) {
     var secs = v.toInt();
     if (secs <= 0) return null;
     if (secs > 100000000000) secs = secs ~/ 1000;
-    return DateTime.fromMillisecondsSinceEpoch(secs * 1000, isUtc: true)
-        .toLocal();
+    return DateTime.fromMillisecondsSinceEpoch(
+      secs * 1000,
+      isUtc: true,
+    ).toLocal();
   }
   final s = '$v'.trim();
   final n = int.tryParse(s);
@@ -71,6 +73,7 @@ class StreamSource {
     required this.url,
     this.referer,
     this.userAgent,
+    this.isIframe = false,
   });
 
   final int id;
@@ -78,6 +81,9 @@ class StreamSource {
   final String url;
   final String? referer;
   final String? userAgent;
+
+  /// true = página web embebida (iframe); false = stream m3u8 (HLS).
+  final bool isIframe;
 
   /// true si el servidor del stream exige cabeceras (Chromecast no las envía).
   bool get needsHeaders => referer != null || userAgent != null;
@@ -102,6 +108,7 @@ class StreamSource {
       url: url,
       referer: opt(raw['referer']),
       userAgent: opt(raw['user_agent']),
+      isIframe: raw['type'] == 'iframe',
     );
   }
 }
@@ -158,8 +165,7 @@ class LiveEvent {
   /// Título escrito a mano en el panel (solo eventos propios).
   final String? customTitle;
 
-  String get title =>
-      customTitle ?? (away.isEmpty ? home : '$home vs $away');
+  String get title => customTitle ?? (away.isEmpty ? home : '$home vs $away');
 
   /// En vivo "de verdad", mirando la hora y no solo la marca del servidor:
   /// - el servidor lo marca en vivo pero su hora de inicio todavía no llegó
@@ -265,8 +271,10 @@ class LiveoApi {
     }
     final st = data['server_time'];
     if (st is num && st > 0) {
-      final server =
-          DateTime.fromMillisecondsSinceEpoch(st.toInt() * 1000, isUtc: true);
+      final server = DateTime.fromMillisecondsSinceEpoch(
+        st.toInt() * 1000,
+        isUtc: true,
+      );
       serverOffset = server.difference(DateTime.now().toUtc());
     }
     final list = data['events'];

@@ -43,9 +43,9 @@ if (!$pdo) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Liveo · Backend</title>
-<link rel="icon" href="assets/favicon.ico?v=1.0.20" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.20">
-<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.20">
+<link rel="icon" href="assets/favicon.ico?v=1.0.21" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/liveo_icon.png?v=1.0.21">
+<link rel="apple-touch-icon" href="assets/liveo_icon.png?v=1.0.21">
 <meta name="theme-color" content="#101722">
 <style>
   :root { color-scheme:dark; --bg:#0a1019; --card:#111b29; --line:#26364b; --txt:#edf3fb; --mut:#91a2b9; --ok:#70dfb0; --bad:#ff737d; }
@@ -58,7 +58,7 @@ if (!$pdo) {
 </head>
 <body>
 <main>
-  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.20" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Eventos propios (manual / CSV)</p></div></div>
+  <div class="brand"><img src="assets/liveo_icon.png?v=1.0.21" alt="Liveo" width="54" height="54"><div><h1>LIVEO</h1><p class="sub">Backend v<?= h(LIVEO_VERSION) ?> · XAMPP local · Eventos propios (manual / CSV)</p></div></div>
 
   <div class="card">
     <h2>URL para la app Android</h2>

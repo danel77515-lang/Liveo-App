@@ -34,9 +34,14 @@ function ensure_sources_schema(PDO $pdo): void
         away VARCHAR(120) NULL,
         league VARCHAR(160) NULL,
         kickoff INT UNSIGNED NULL,
+        kind VARCHAR(8) NOT NULL DEFAULT \'hls\',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         KEY idx_event (event_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    // Instalaciones anteriores: tipo de enlace (hls = m3u8, iframe = página web embebida).
+    if (!$pdo->query("SHOW COLUMNS FROM event_sources LIKE 'kind'")->fetch()) {
+        $pdo->exec("ALTER TABLE event_sources ADD COLUMN kind VARCHAR(8) NOT NULL DEFAULT 'hls'");
+    }
     ensure_manual_schema($pdo);
     // Limpieza de la integración anterior (RockyLive): enlaces y caché de eventos "rl-…".
     try {
@@ -68,7 +73,7 @@ function sources_for_events(array $eventIds): array
     try {
         $marks = implode(',', array_fill(0, count($ids), '?'));
         $st = $pdo->prepare(
-            'SELECT id, event_id, label, url, referer, user_agent FROM event_sources
+            'SELECT id, event_id, label, url, referer, user_agent, kind FROM event_sources
              WHERE active = 1 AND event_id IN (' . $marks . ')
              ORDER BY sort_order ASC, id ASC'
         );
@@ -79,6 +84,7 @@ function sources_for_events(array $eventIds): array
                 'id'    => (int)$row['id'],
                 'label' => (string)$row['label'],
                 'url'   => (string)$row['url'],
+                'type'  => (string)$row['kind'] === 'iframe' ? 'iframe' : 'hls',
             ];
             if ($row['referer'] !== null && $row['referer'] !== '') {
                 $item['referer'] = (string)$row['referer'];
@@ -95,7 +101,86 @@ function sources_for_events(array $eventIds): array
     }
 }
 
-/** Agrega "links" (enlaces m3u8 del panel) a cada evento normalizado. */
+/**
+ * Interpreta lo que se pega como enlace: una URL (m3u8 o página web) o el código
+ * <iframe …> completo (se toma su src).
+ * $choice: 'auto' | 'hls' | 'iframe'. Devuelve ['url', 'kind', 'err'].
+ */
+function parse_source_input(string $raw, string $choice = 'auto'): array
+{
+    $raw = trim($raw);
+    $kind = null;
+    $url = $raw;
+    if (stripos($raw, '<iframe') !== false) {
+        if (preg_match('/\bsrc\s*=\s*(["\'])(.*?)\1/is', $raw, $m) !== 1) {
+            return ['url' => '', 'kind' => 'iframe', 'err' => 'No encontré el src dentro del código <iframe>.'];
+        }
+        $url = trim(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $kind = 'iframe';
+    }
+    if (strncmp($url, '//', 2) === 0) {
+        $url = 'https:' . $url;
+    }
+    if ($url === '' || strlen($url) > 1000 || preg_match('#^https?://\S+$#i', $url) !== 1) {
+        return ['url' => '', 'kind' => 'hls', 'err' => 'Pega una URL que empiece con http:// o https:// (sin espacios, máximo 1000 caracteres) o el código <iframe …>.'];
+    }
+    if ($kind === null) {
+        if ($choice === 'hls' || $choice === 'iframe') {
+            $kind = $choice;
+        } else {
+            $kind = stripos($url, '.m3u8') !== false ? 'hls' : 'iframe';
+        }
+    }
+    return ['url' => $url, 'kind' => $kind, 'err' => null];
+}
+
+/** Comprueba que una página (iframe) responda. */
+function probe_page(string $url, ?string $referer = null, ?string $userAgent = null): array
+{
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'http' => 0, 'note' => 'Falta la extensión curl de PHP.'];
+    }
+    $c = liveo_config();
+    $verify = !empty($c['ssl_verify']);
+    $headers = ['Accept: text/html,*/*'];
+    if ($referer !== null && $referer !== '') {
+        $headers[] = 'Referer: ' . $referer;
+    }
+    $ch = curl_init($url);
+    $got = 0;
+    $opts = [
+        CURLOPT_RETURNTRANSFER => false,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 4,
+        CURLOPT_TIMEOUT        => 12,
+        CURLOPT_CONNECTTIMEOUT => 6,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_USERAGENT      => ($userAgent !== null && $userAgent !== '') ? $userAgent : 'Mozilla/5.0 (Linux; Android 13) Liveo/' . LIVEO_VERSION,
+        CURLOPT_SSL_VERIFYPEER => $verify,
+        CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+        CURLOPT_WRITEFUNCTION  => function ($handle, $chunk) use (&$got) {
+            $got += strlen($chunk);
+            return $got > 65536 ? 0 : strlen($chunk);
+        },
+    ];
+    if (!empty($c['ca_bundle'])) {
+        $opts[CURLOPT_CAINFO] = (string)$c['ca_bundle'];
+    }
+    curl_setopt_array($ch, $opts);
+    curl_exec($ch);
+    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    if ($http === 0) {
+        return ['ok' => false, 'http' => 0, 'note' => 'Sin respuesta: ' . ($err !== '' ? $err : 'no se pudo conectar') . '.'];
+    }
+    if ($http >= 400) {
+        return ['ok' => false, 'http' => $http, 'note' => 'La página respondió HTTP ' . $http . '. Revisa la URL o el Referer.'];
+    }
+    return ['ok' => true, 'http' => $http, 'note' => 'La página responde (HTTP ' . $http . '). En la app se abre dentro del reproductor.'];
+}
+
+/** Agrega "links" (enlaces m3u8 / iframe del panel) a cada evento normalizado. */
 function attach_links(array $events): array
 {
     $ids = [];

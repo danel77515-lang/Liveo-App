@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_chrome_cast/flutter_chrome_cast.dart' show GoogleCastDevice;
+import 'package:flutter_chrome_cast/flutter_chrome_cast.dart'
+    show GoogleCastDevice;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import 'cast_service.dart';
 import 'models.dart';
@@ -28,6 +30,8 @@ class LivePlayerPage extends StatefulWidget {
 
 class _LivePlayerPageState extends State<LivePlayerPage> {
   VideoPlayerController? _vc;
+  WebViewController? _web; // fuente iframe (página web)
+  bool _webLoading = false;
   int _index = 0;
   bool _landscape = false; // arranca en vertical; horizontal es opcional
   int _gen = 0;
@@ -46,6 +50,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
 
   List<StreamSource> get _links => widget.event.links;
   StreamSource get _src => _links[_index];
+  bool get _isIframe => _links.isNotEmpty && _links[_index].isIframe;
 
   @override
   void initState() {
@@ -109,11 +114,28 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     final old = _vc;
     _vc = null;
     old?.removeListener(_onTick);
+    // Fuente iframe: se abre la página dentro de un WebView.
+    if (_links[i].isIframe) {
+      _hideTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _index = i;
+          _starting = false;
+          _error = null;
+          _webLoading = true;
+          _web = _buildWeb(_links[i]);
+        });
+      }
+      await old?.dispose();
+      return;
+    }
     if (mounted) {
       setState(() {
         _index = i;
         _starting = true;
         _error = null;
+        _web = null;
+        _webLoading = false;
       });
     }
     await old?.dispose();
@@ -214,8 +236,69 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     _showControls();
   }
 
+  /// WebView de una fuente iframe. Se bloquean las redirecciones a otros sitios
+  /// (publicidad): solo se navega dentro del mismo sitio del iframe.
+  WebViewController _buildWeb(StreamSource s) {
+    final uri = Uri.parse(s.url);
+    final c = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) {
+            if (mounted) setState(() => _webLoading = true);
+          },
+          onPageFinished: (_) {
+            if (mounted) setState(() => _webLoading = false);
+          },
+          onNavigationRequest: (req) {
+            if (!req.isMainFrame) return NavigationDecision.navigate;
+            final u = Uri.tryParse(req.url);
+            if (u == null) return NavigationDecision.prevent;
+            if (u.scheme == 'about') return NavigationDecision.navigate;
+            final web = u.scheme == 'http' || u.scheme == 'https';
+            return web && _sameSite(u.host, uri.host)
+                ? NavigationDecision.navigate
+                : NavigationDecision.prevent;
+          },
+          onWebResourceError: (e) {
+            if ((e.isForMainFrame ?? false) && mounted) {
+              setState(() {
+                _webLoading = false;
+                _error = 'No se pudo cargar la página.';
+              });
+            }
+          },
+        ),
+      );
+    if (s.userAgent != null) c.setUserAgent(s.userAgent);
+    c.loadRequest(uri, headers: {if (s.referer != null) 'Referer': s.referer!});
+    return c;
+  }
+
+  /// Mismo sitio = mismo dominio base (www.x.com y cdn.x.com cuentan igual).
+  bool _sameSite(String a, String b) {
+    String root(String h) {
+      final p = h.toLowerCase().split('.');
+      return p.length <= 2
+          ? h.toLowerCase()
+          : p.sublist(p.length - 2).join('.');
+    }
+
+    return root(a) == root(b);
+  }
+
   Future<void> _selectSource(int i) async {
     if (i == _index && _error == null) return;
+    // Un iframe no se puede transmitir: se corta el Chromecast y se abre la página.
+    if (_casting && _links[i].isIframe) {
+      await CastService.stop();
+      if (!mounted) return;
+      setState(() => _casting = false);
+      _retries = 0;
+      await _open(i);
+      return;
+    }
     if (_casting) {
       setState(() => _index = i);
       try {
@@ -300,8 +383,10 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                   ),
                   if (_casting)
                     ListTile(
-                      leading:
-                          const Icon(Icons.cast_connected, color: Pal.accent),
+                      leading: const Icon(
+                        Icons.cast_connected,
+                        color: Pal.accent,
+                      ),
                       title: Text(
                         'Transmitiendo a $_castName',
                         style: const TextStyle(color: Colors.white),
@@ -410,33 +495,34 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   Widget build(BuildContext context) {
     final pip = NativeBridge.inPip.value;
     final v = _vc?.value;
-    final buffering = !_casting &&
-        _error == null &&
-        (_starting || (v?.isBuffering ?? false));
-    final player = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: pip ? null : _toggleControls,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _video(),
-          if (buffering)
-            const Center(
-              child: SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Colors.white70,
-                ),
-              ),
+    final buffering =
+        !_casting && _error == null && (_starting || (v?.isBuffering ?? false));
+    final Widget player = (_isIframe && _web != null)
+        ? _iframePlayer(pip)
+        : GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: pip ? null : _toggleControls,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _video(),
+                if (buffering)
+                  const Center(
+                    child: SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                if (_error != null && !_casting && !pip) _errorView(),
+                if (_casting && !pip) _castView(),
+                if (!pip) _controlsLayer(),
+              ],
             ),
-          if (_error != null && !_casting && !pip) _errorView(),
-          if (_casting && !pip) _castView(),
-          if (!pip) _controlsLayer(),
-        ],
-      ),
-    );
+          );
     // Imagen en imagen o pantalla completa horizontal: solo el video.
     if (pip || _landscape) {
       return Scaffold(backgroundColor: Colors.black, body: player);
@@ -456,6 +542,75 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
           Expanded(child: _infoPanel()),
         ],
       ),
+    );
+  }
+
+  /// Página web (iframe) a pantalla del reproductor, sin la capa de controles
+  /// (taparía los botones de la propia página): solo volver y girar.
+  Widget _iframePlayer(bool pip) {
+    Widget round(IconData icon, String tip, VoidCallback onTap) {
+      return Material(
+        color: Colors.black54,
+        shape: const CircleBorder(),
+        child: IconButton(
+          tooltip: tip,
+          visualDensity: VisualDensity.compact,
+          iconSize: 22,
+          color: Colors.white,
+          onPressed: onTap,
+          icon: Icon(icon),
+        ),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        WebViewWidget(controller: _web!),
+        if (_webLoading && _error == null)
+          const Center(
+            child: SizedBox(
+              width: 34,
+              height: 34,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Colors.white70,
+              ),
+            ),
+          ),
+        if (_error != null && !pip)
+          ColoredBox(color: Colors.black, child: _errorView()),
+        if (!pip)
+          Positioned.fill(
+            child: SafeArea(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Row(
+                    children: [
+                      round(
+                        Icons.arrow_back,
+                        'Volver',
+                        () => Navigator.of(context).maybePop(),
+                      ),
+                      const Spacer(),
+                      round(
+                        _landscape
+                            ? Icons.fullscreen_exit_rounded
+                            : Icons.fullscreen_rounded,
+                        _landscape
+                            ? 'Salir de pantalla completa'
+                            : 'Pantalla completa',
+                        _toggleOrientation,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -505,6 +660,9 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                 for (var i = 0; i < _links.length; i++)
                   ChoiceChip(
                     label: Text(_links[i].label),
+                    avatar: _links[i].isIframe
+                        ? const Icon(Icons.language_rounded, size: 16)
+                        : null,
                     selected: i == _index,
                     showCheckmark: false,
                     selectedColor: Pal.accent.withValues(alpha: 0.25),
@@ -674,11 +832,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               ),
             SafeArea(
               child: Column(
-                children: [
-                  _topBar(),
-                  const Spacer(),
-                  _bottomBar(),
-                ],
+                children: [_topBar(), const Spacer(), _bottomBar()],
               ),
             ),
           ],

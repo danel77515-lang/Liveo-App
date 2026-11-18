@@ -16,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.20';
+const String liveoVersion = '1.0.21';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,7 +70,10 @@ class _AuroraBackgroundState extends State<AuroraBackground>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: RadialGradient(
-              colors: [c.withValues(alpha: alpha), c.withValues(alpha: 0)],
+              colors: [
+                c.withValues(alpha: alpha),
+                c.withValues(alpha: 0),
+              ],
             ),
           ),
         ),
@@ -119,13 +122,19 @@ class _AuroraBackgroundState extends State<AuroraBackground>
                     a,
                   ),
                   _blob(
-                    Alignment(-0.85 + math.sin(t) * 0.2, 0.25 + math.cos(t) * 0.3),
+                    Alignment(
+                      -0.85 + math.sin(t) * 0.2,
+                      0.25 + math.cos(t) * 0.3,
+                    ),
                     Pal.cyan,
                     320,
                     a * 0.85,
                   ),
                   _blob(
-                    Alignment(0.9 - math.cos(t) * 0.2, 0.95 + math.sin(t) * 0.1),
+                    Alignment(
+                      0.9 - math.cos(t) * 0.2,
+                      0.95 + math.sin(t) * 0.1,
+                    ),
                     Pal.lime,
                     300,
                     a * 0.7,
@@ -224,7 +233,13 @@ class LogoPainter extends CustomPainter {
           stops: [0, 0.5, 1],
           transform: GradientRotation(-math.pi / 6),
         ).createShader(rect);
-      canvas.drawArc(rect, -math.pi / 6, 5 * math.pi / 3 * ring, false, ringPaint);
+      canvas.drawArc(
+        rect,
+        -math.pi / 6,
+        5 * math.pi / 3 * ring,
+        false,
+        ringPaint,
+      );
     }
 
     // Triángulo de play con esquinas redondeadas.
@@ -357,7 +372,11 @@ double _interval(double t, double a, double b, Curve curve) =>
 
 /// Ondas de señal que salen del punto en vivo del logo.
 class _WavesPainter extends CustomPainter {
-  const _WavesPainter({required this.t, required this.unit, required this.strength});
+  const _WavesPainter({
+    required this.t,
+    required this.unit,
+    required this.strength,
+  });
 
   final double t;
   final double unit;
@@ -405,15 +424,20 @@ class _EqLoader extends StatelessWidget {
           for (var i = 0; i < 5; i++)
             Container(
               width: 6,
-              height: 10 + 26 * (0.5 + 0.5 * math.sin(2 * math.pi * (t + i * 0.17))),
+              height:
+                  10 +
+                  26 * (0.5 + 0.5 * math.sin(2 * math.pi * (t + i * 0.17))),
               margin: const EdgeInsets.symmetric(horizontal: 3),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(3),
                 color: Color.lerp(Pal.lime, Pal.violet, i / 4),
                 boxShadow: [
                   BoxShadow(
-                    color: Color.lerp(Pal.lime, Pal.violet, i / 4)!
-                        .withValues(alpha: 0.45),
+                    color: Color.lerp(
+                      Pal.lime,
+                      Pal.violet,
+                      i / 4,
+                    )!.withValues(alpha: 0.45),
                     blurRadius: 8,
                   ),
                 ],
@@ -524,7 +548,10 @@ class _SplashScreenState extends State<SplashScreen>
                       ),
                     ),
                     const SizedBox(height: 40),
-                    Opacity(opacity: loader, child: _EqLoader(t: _loop.value)),
+                    Opacity(
+                      opacity: loader,
+                      child: _EqLoader(t: _loop.value),
+                    ),
                   ],
                 ),
               );
@@ -648,9 +675,8 @@ Future<void> openEvent(BuildContext context, LiveEvent e) async {
     await _showSources(context, e);
     return;
   }
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(builder: (_) => LivePlayerPage(event: e)),
-  );
+  await Navigator.of(context)
+      .push(MaterialPageRoute<void>(builder: (_) => LivePlayerPage(event: e)));
 }
 
 class HomePage extends StatefulWidget {
@@ -718,8 +744,8 @@ class _HomePageState extends State<HomePage> {
         actions: [
           IconButton(
             tooltip: 'Favoritos',
-            onPressed: () => Navigator.of(context)
-                .push(_fadeRoute(const FavoritesPage())),
+            onPressed: () =>
+                Navigator.of(context).push(_fadeRoute(const FavoritesPage())),
             icon: const Icon(Icons.star_rounded),
           ),
           IconButton(
@@ -813,10 +839,28 @@ String _p2(int n) => n.toString().padLeft(2, '0');
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
-const List<String> _weekdays = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+const List<String> _weekdays = [
+  'lun',
+  'mar',
+  'mié',
+  'jue',
+  'vie',
+  'sáb',
+  'dom',
+];
 const List<String> _months = [
-  'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+  'ene',
+  'feb',
+  'mar',
+  'abr',
+  'may',
+  'jun',
+  'jul',
+  'ago',
+  'sep',
+  'oct',
+  'nov',
+  'dic',
 ];
 
 String _dayText(DateTime d) =>
@@ -877,8 +921,7 @@ class EventsStore {
     final byKey = <String, LiveEvent>{};
     for (final list in res) {
       for (final e in list) {
-        final key =
-            e.id.isEmpty ? '${e.home}|${e.away}|${e.kickoff}' : e.id;
+        final key = e.id.isEmpty ? '${e.home}|${e.away}|${e.kickoff}' : e.id;
         byKey.putIfAbsent(key, () => e);
       }
     }
@@ -898,8 +941,9 @@ class FavStore {
   static final FavStore instance = FavStore._();
   static const String _key = 'favEvents';
 
-  final ValueNotifier<List<String>> ids =
-      ValueNotifier<List<String>>(<String>[]);
+  final ValueNotifier<List<String>> ids = ValueNotifier<List<String>>(
+    <String>[],
+  );
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
@@ -932,8 +976,7 @@ List<LiveEvent> _homeEvents(List<LiveEvent> all) {
     if (e.liveNow) return true;
     final k = e.kickoff;
     return k == null || k.isAfter(from);
-  }).toList()
-    ..sort(_liveFirst);
+  }).toList()..sort(_liveFirst);
   return out;
 }
 
@@ -1001,7 +1044,9 @@ class _Hl extends StatelessWidget {
         if (t.isEmpty) continue;
         final at = f.indexOf(t, i);
         if (at >= 0 &&
-            (bestAt < 0 || at < bestAt || (at == bestAt && t.length > bestLen))) {
+            (bestAt < 0 ||
+                at < bestAt ||
+                (at == bestAt && t.length > bestLen))) {
           bestAt = at;
           bestLen = t.length;
         }
@@ -1074,14 +1119,17 @@ class _Crest extends StatelessWidget {
   final double size;
 
   Widget _initials() {
-    final words =
-        name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final words = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
     final txt = words.isEmpty
         ? '?'
         : (words.length == 1
-                ? words.first.substring(0, math.min(2, words.first.length))
-                : '${words.first[0]}${words[1][0]}')
-            .toUpperCase();
+                  ? words.first.substring(0, math.min(2, words.first.length))
+                  : '${words.first[0]}${words[1][0]}')
+              .toUpperCase();
     final hue = (name.hashCode.abs() % 360).toDouble();
     return Container(
       width: size,
@@ -1122,11 +1170,7 @@ class _Crest extends StatelessWidget {
 
 /// Una fila de la tarjeta: escudo + nombre.
 class _TeamRow extends StatelessWidget {
-  const _TeamRow({
-    required this.name,
-    required this.logo,
-    required this.terms,
-  });
+  const _TeamRow({required this.name, required this.logo, required this.terms});
 
   final String name;
   final String? logo;
@@ -1271,9 +1315,11 @@ class _RightBlock extends StatelessWidget {
     }
     if (event.timeTbc) {
       // Solo se conoce la fecha: días que faltan (por calendario) y aviso.
-      final days = DateTime(k.year, k.month, k.day)
-          .difference(DateTime(now.year, now.month, now.day))
-          .inDays;
+      final days = DateTime(
+        k.year,
+        k.month,
+        k.day,
+      ).difference(DateTime(now.year, now.month, now.day)).inDays;
       if (days <= 0) {
         return Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1418,8 +1464,8 @@ class _EventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final border =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12);
+    final border = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.12);
     // Un solo reloj de 1 s reconstruye la tarjeta: cuenta regresiva, paso a
     // «en vivo» y borde rojo cambian sin recargar la lista.
     return ValueListenableBuilder<int>(
@@ -1506,8 +1552,7 @@ class _EventCard extends StatelessWidget {
                                     ),
                                   )
                                 : Column(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.center,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       _TeamRow(
                                         name: event.home,
@@ -1912,8 +1957,10 @@ Future<void> _showSources(BuildContext context, LiveEvent e) async {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    trailing: const Icon(
-                      Icons.play_circle_fill_rounded,
+                    trailing: Icon(
+                      e.links[i].isIframe
+                          ? Icons.language_rounded
+                          : Icons.play_circle_fill_rounded,
                       color: Pal.accent,
                     ),
                     onTap: () => Navigator.of(ctx).pop(i),
@@ -2082,10 +2129,7 @@ class _EventsHomeState extends State<EventsHome> {
                 selected: _quick == _Quick.upcoming,
                 onTap: () => setState(() => _quick = _Quick.upcoming),
               ),
-              _SportChip(
-                sport: _sport,
-                onTap: () => _pickSport(sports),
-              ),
+              _SportChip(sport: _sport, onTap: () => _pickSport(sports)),
             ],
           ),
         ),
@@ -2277,11 +2321,7 @@ class _FloatingNav extends StatelessWidget {
       Icons.calendar_month_outlined,
       Icons.tune_outlined,
     ];
-    const selectedIcons = [
-      Icons.sensors,
-      Icons.calendar_month,
-      Icons.tune,
-    ];
+    const selectedIcons = [Icons.sensors, Icons.calendar_month, Icons.tune];
     const labels = ['Eventos', 'Agenda', 'Ajustes'];
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -2341,7 +2381,9 @@ class _NavItem extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
         decoration: BoxDecoration(
-          color: selected ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
+          color: selected
+              ? Pal.accent.withValues(alpha: 0.14)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(28),
         ),
         child: Column(
@@ -2384,10 +2426,9 @@ class FavoritesPage extends StatelessWidget {
       body: ValueListenableBuilder<List<String>>(
         valueListenable: FavStore.instance.ids,
         builder: (context, ids, child) {
-          final list = EventsStore.instance.all
-              .where((e) => ids.contains(e.id))
-              .toList()
-            ..sort(_liveFirst);
+          final list =
+              EventsStore.instance.all.where((e) => ids.contains(e.id)).toList()
+                ..sort(_liveFirst);
           if (list.isEmpty) {
             return Center(
               child: Padding(
@@ -2509,7 +2550,10 @@ class _FadeIn extends StatelessWidget {
       curve: Curves.easeOut,
       builder: (context, t, inner) => Opacity(
         opacity: t,
-        child: Transform.translate(offset: Offset(0, (1 - t) * 12), child: inner),
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 12),
+          child: inner,
+        ),
       ),
       child: child,
     );
@@ -2573,7 +2617,9 @@ class _SearchPageState extends State<SearchPage> {
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _recent = List<String>.from(p.getStringList(_recentKey) ?? const <String>[]);
+      _recent = List<String>.from(
+        p.getStringList(_recentKey) ?? const <String>[],
+      );
     });
   }
 
@@ -2605,10 +2651,8 @@ class _SearchPageState extends State<SearchPage> {
     setState(() => _q = v);
   }
 
-  List<String> get _terms => _fold(_q)
-      .split(RegExp(r'\s+'))
-      .where((t) => t.isNotEmpty)
-      .toList();
+  List<String> get _terms =>
+      _fold(_q).split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
 
   List<LiveEvent> _results() {
     final terms = _terms;
@@ -2617,8 +2661,7 @@ class _SearchPageState extends State<SearchPage> {
       if (terms.isEmpty) return true;
       final hay = _fold('${e.home} ${e.away} ${e.league}');
       return terms.every((t) => hay.contains(t));
-    }).toList()
-      ..sort(_liveFirst);
+    }).toList()..sort(_liveFirst);
     return out;
   }
 
@@ -2773,7 +2816,9 @@ class _SearchPageState extends State<SearchPage> {
             children: [
               Expanded(
                 child: Text(
-                  list.length == 1 ? '1 resultado' : '${list.length} resultados',
+                  list.length == 1
+                      ? '1 resultado'
+                      : '${list.length} resultados',
                   style: TextStyle(color: _muted(context)),
                 ),
               ),
@@ -2792,7 +2837,11 @@ class _SearchPageState extends State<SearchPage> {
             padding: const EdgeInsets.only(top: 48),
             child: Column(
               children: [
-                Icon(Icons.search_off_rounded, size: 48, color: _muted(context)),
+                Icon(
+                  Icons.search_off_rounded,
+                  size: 48,
+                  color: _muted(context),
+                ),
                 const SizedBox(height: 12),
                 Text(
                   _q.trim().isEmpty
@@ -2839,7 +2888,9 @@ class _SearchPageState extends State<SearchPage> {
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 180),
-                child: showResults ? _resultsView(context) : _suggestions(context),
+                child: showResults
+                    ? _resultsView(context)
+                    : _suggestions(context),
               ),
             ),
           ],
@@ -2872,8 +2923,8 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final border =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12);
+    final border = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.12);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -2990,9 +3041,8 @@ class _SettingsPageState extends State<SettingsPage> {
     await p.remove('recentSearches');
     FavStore.instance.ids.value = <String>[];
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Datos borrados.')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Datos borrados.')));
   }
 
   @override
@@ -3002,7 +3052,9 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         const _Label('General'),
         _SettingsCard(
-          icon: widget.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+          icon: widget.dark
+              ? Icons.dark_mode_outlined
+              : Icons.light_mode_outlined,
           title: 'Modo oscuro',
           trailing: Switch(value: widget.dark, onChanged: widget.onTheme),
           onTap: () => widget.onTheme(!widget.dark),
