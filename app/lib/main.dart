@@ -4,6 +4,7 @@ import 'dart:ui' show FontFeature;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,7 +17,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.25';
+const String liveoVersion = '1.0.26';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -2029,6 +2030,7 @@ class _EventsHomeState extends State<EventsHome> {
   List<LiveEvent> _events = const <LiveEvent>[];
   _Quick _quick = _Quick.all;
   String? _sport; // null = todos los deportes
+  List<String> _notices = const <String>[];
 
   @override
   void initState() {
@@ -2047,7 +2049,17 @@ class _EventsHomeState extends State<EventsHome> {
     _load();
   }
 
+  Future<void> _loadNotices() async {
+    final list = await LiveoApi.announcements();
+    if (!mounted) return;
+    final same =
+        list.length == _notices.length &&
+        List.generate(list.length, (i) => list[i] == _notices[i]).every((b) => b);
+    if (!same) setState(() => _notices = list);
+  }
+
   Future<void> _load({bool initial = false}) async {
+    _loadNotices();
     if (!initial) {
       setState(() {
         _loading = _events.isEmpty;
@@ -2123,6 +2135,7 @@ class _EventsHomeState extends State<EventsHome> {
     int count(_Quick q) => _applyQuick(base, q).length;
     return Column(
       children: [
+        if (_notices.isNotEmpty) _AnnouncementBar(items: _notices),
         SizedBox(
           height: 54,
           child: ListView(
@@ -2182,6 +2195,122 @@ class _EventsHomeState extends State<EventsHome> {
       ],
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Anuncios informativos (barra con texto deslizante)
+// ---------------------------------------------------------------------------
+
+/// Barra con megáfono y los anuncios del panel pasando de derecha a izquierda.
+class _AnnouncementBar extends StatelessWidget {
+  const _AnnouncementBar({required this.items});
+
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    return Container(
+      height: 34,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.only(left: 10),
+      decoration: BoxDecoration(
+        color: Pal.accent.withValues(alpha: dark ? 0.08 : 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Pal.accent.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.campaign_rounded, size: 17, color: Pal.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRect(
+              child: _Marquee(
+                text: items.join('   •   '),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: dark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Texto que se desplaza sin fin hacia la izquierda (se repite sin saltos).
+class _Marquee extends StatefulWidget {
+  const _Marquee({required this.text, required this.style});
+
+  final String text;
+  final TextStyle style;
+
+  @override
+  State<_Marquee> createState() => _MarqueeState();
+}
+
+class _MarqueeState extends State<_Marquee>
+    with SingleTickerProviderStateMixin {
+  static const double _speed = 42; // píxeles por segundo
+  static const double _gap = 56;
+  final ValueNotifier<double> _offset = ValueNotifier<double>(0);
+  late final Ticker _ticker;
+  double _segment = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker((elapsed) {
+      if (_segment <= 0) return;
+      _offset.value = (elapsed.inMicroseconds / 1e6 * _speed) % _segment;
+    })..start();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _offset.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tp = TextPainter(
+      text: TextSpan(text: widget.text, style: widget.style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    _segment = tp.width + _gap;
+    return CustomPaint(
+      painter: _MarqueePainter(tp, _segment, _offset),
+      size: Size.infinite,
+    );
+  }
+}
+
+class _MarqueePainter extends CustomPainter {
+  _MarqueePainter(this.tp, this.segment, this.offset) : super(repaint: offset);
+
+  final TextPainter tp;
+  final double segment;
+  final ValueNotifier<double> offset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = (size.height - tp.height) / 2;
+    var x = -offset.value;
+    while (x < size.width) {
+      tp.paint(canvas, Offset(x, y));
+      x += segment;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MarqueePainter old) =>
+      old.tp.text != tp.text || old.segment != segment;
 }
 
 // ---------------------------------------------------------------------------

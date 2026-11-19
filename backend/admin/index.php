@@ -100,7 +100,7 @@ function known_team_names(PDO $pdo): array
 function admin_view(): string
 {
     $v = (string)($_GET['v'] ?? 'manual');
-    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues'], true) ? $v : 'manual';
+    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues', 'announcements'], true) ? $v : 'manual';
 }
 
 function valid_event_id(string $id): bool
@@ -789,6 +789,14 @@ if ($method === 'POST' && !$fatal) {
                 go('v=manual');
                 break;
 
+            case 'announcements_save':
+                $items = announcements_parse((string)($_POST['text'] ?? ''));
+                set_setting($pdo, 'announcements_text', implode("\n", $items));
+                set_setting($pdo, 'announcements_on', !empty($_POST['enabled']) ? '1' : '0');
+                flash('ok', 'Anuncios guardados: ' . count($items) . (empty($_POST['enabled']) ? ' (barra oculta en la app).' : '.'));
+                go('v=announcements');
+                break;
+
             case 'config_save':
                 $minutes = (int)($_POST['duration'] ?? 0);
                 $basket = (int)($_POST['duration_basket'] ?? 0);
@@ -1200,6 +1208,24 @@ if ($fatal) {
         ];
         echo '<p><a class="link" href="?v=manual">← Volver a los eventos</a></p>';
         echo manual_form_html($pdo, $mv, 0, manual_duration_minutes($pdo));
+    } elseif ($view === 'announcements') {
+        // ---- Anuncios informativos -------------------------------------------------
+        $ann = announcements_load($pdo);
+        ?>
+        <div class="card narrow" style="margin:0 0 17px;max-width:720px">
+          <h2>Anuncios de la app</h2>
+          <p class="mut">Aparecen en el inicio de la app como una barra con un megáfono y el texto deslizándose. Escribe <b>un anuncio por línea</b> (hasta 10, de 200 caracteres como máximo); pasan uno tras otro y se repiten. La app los actualiza al abrirla o al deslizar para recargar.</p>
+          <form method="post">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="announcements_save">
+            <label>Anuncios
+              <textarea name="text" rows="7" maxlength="2500" placeholder="Nueva versión disponible: actualizá desde el panel de descargas&#10;Seguinos en Telegram para enterarte de las novedades"><?= h(implode("\n", $ann['items'])) ?></textarea>
+            </label>
+            <label style="color:var(--txt)"><input type="checkbox" name="enabled" value="1" <?= $ann['enabled'] ? 'checked' : '' ?>> Mostrar la barra de anuncios en la app</label>
+            <div class="actions"><button type="submit">Guardar</button></div>
+          </form>
+        </div>
+        <?php
     } elseif ($view === 'config') {
         // ---- Configuración -------------------------------------------------------
         $durMin = manual_duration_minutes($pdo);
@@ -1472,6 +1498,7 @@ $view = admin_view();
       <a href="?v=logos" class="<?= $view === 'logos' ? 'on' : '' ?>">Escudos</a>
       <a href="?v=leagues" class="<?= $view === 'leagues' ? 'on' : '' ?>">Competiciones</a>
       <a href="?v=linked" class="<?= $view === 'linked' ? 'on' : '' ?>">Con enlaces</a>
+      <a href="?v=announcements" class="<?= $view === 'announcements' ? 'on' : '' ?>">Anuncios</a>
       <a href="?v=config" class="<?= $view === 'config' ? 'on' : '' ?>">Configuración</a>
       <a href="../">Backend</a>
       <form method="post" style="display:inline"><?= csrf_field() ?><input type="hidden" name="a" value="logout"><button type="submit">Cerrar sesión</button></form>

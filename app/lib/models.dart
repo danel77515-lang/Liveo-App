@@ -268,6 +268,30 @@ class LiveEvent {
 }
 
 class LiveoApi {
+  /// Anuncios informativos para la barra del inicio. Nunca lanza: si falla
+  /// (o el servidor es una versión anterior) devuelve una lista vacía.
+  static Future<List<String>> announcements() async {
+    try {
+      final r = await http
+          .get(
+            Uri.parse('$apiBase/announcements'),
+            headers: {'Accept': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) return const <String>[];
+      final data = jsonDecode(utf8.decode(r.bodyBytes));
+      if (data is! Map || data['enabled'] == false) return const <String>[];
+      final items = data['items'];
+      if (items is! List) return const <String>[];
+      return items
+          .map((e) => '$e'.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
   static Future<List<LiveEvent>> events(String path) async {
     final uri = Uri.parse('$apiBase/$path');
     final r = await http

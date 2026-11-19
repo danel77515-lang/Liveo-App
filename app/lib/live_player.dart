@@ -737,13 +737,13 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     );
   }
 
-  /// Caja con las fuentes del evento: una ficha por opción, la activa resaltada.
+  /// Caja con las fuentes del evento: una ficha compacta por opción.
   Widget _optionsBox() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
         color: _boxColor,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
@@ -751,13 +751,13 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.tune_rounded, size: 16, color: Colors.white54),
-              const SizedBox(width: 6),
+              const Icon(Icons.tune_rounded, size: 14, color: Colors.white54),
+              const SizedBox(width: 5),
               const Text(
                 'OPCIONES',
                 style: TextStyle(
                   color: Colors.white54,
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1,
                 ),
@@ -765,15 +765,17 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               const Spacer(),
               Text(
                 '${_links.length} fuentes',
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Colors.white38, fontSize: 10.5),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, c) {
-              const gap = 8.0;
-              final w = (c.maxWidth - gap) / 2;
+              const gap = 6.0;
+              // 2 columnas hasta 4 fuentes; con más, 3 para que no crezca.
+              final cols = _links.length <= 4 ? 2 : 3;
+              final w = (c.maxWidth - gap * (cols - 1)) / cols;
               return Wrap(
                 spacing: gap,
                 runSpacing: gap,
@@ -789,72 +791,46 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     );
   }
 
+  /// Ficha de una sola línea: ícono + nombre (+ tilde si es la activa).
+  /// Directo / Web se distingue por el ícono; «reproduciendo» por el color.
   Widget _optionTile(int i) {
     final s = _links[i];
     final on = i == _index;
     return Material(
       color: on ? Pal.accent.withValues(alpha: 0.14) : Colors.white10,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         side: BorderSide(color: on ? Pal.accent : Colors.white12),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _selectSource(i),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           child: Row(
             children: [
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: on
-                      ? Pal.accent.withValues(alpha: 0.25)
-                      : Colors.white12,
-                ),
-                child: Icon(
-                  s.isIframe
-                      ? Icons.language_rounded
-                      : Icons.play_arrow_rounded,
-                  size: 18,
-                  color: on ? Pal.accent : Colors.white70,
-                ),
+              Icon(
+                s.isIframe ? Icons.language_rounded : Icons.play_circle_rounded,
+                size: 18,
+                color: on ? Pal.accent : Colors.white60,
               ),
-              const SizedBox(width: 9),
+              const SizedBox(width: 7),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      s.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: on ? Pal.accent : Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.5,
-                      ),
-                    ),
-                    Text(
-                      on ? 'Reproduciendo' : (s.isIframe ? 'Web' : 'Directo'),
-                      style: TextStyle(
-                        color: on
-                            ? Pal.accent.withValues(alpha: 0.8)
-                            : Colors.white54,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  s.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: on ? Pal.accent : Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
                 ),
               ),
               if (on)
                 const Icon(
                   Icons.check_circle_rounded,
-                  size: 18,
+                  size: 16,
                   color: Pal.accent,
                 ),
             ],

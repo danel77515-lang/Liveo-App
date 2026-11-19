@@ -57,6 +57,17 @@ try {
         ]);
     }
 
+    // ---- Anuncios informativos (barra deslizante) -----------------------
+    if ($path === 'announcements') {
+        require_method($method, ['GET']);
+        $a = announcements_load();
+        respond([
+            'success' => true,
+            'enabled' => $a['enabled'],
+            'items'   => $a['enabled'] ? $a['items'] : [],
+        ]);
+    }
+
     // ---- Agenda --------------------------------------------------------
     if ($path === 'schedule') {
         require_method($method, ['GET']);

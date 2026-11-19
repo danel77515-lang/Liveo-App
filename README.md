@@ -9,6 +9,17 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.26
+- **Anuncios informativos en el inicio:** barra con megáfono y texto deslizante (como la de SportzX) arriba de los chips.
+  Se cargan en `admin/ → Anuncios` (un anuncio por línea, hasta 10; pasan uno tras otro y se repiten) y se pueden
+  ocultar con la casilla «Mostrar la barra». La app los pide al abrir y al deslizar para recargar; si no hay anuncios
+  (o el servidor es una versión anterior) la barra no aparece.
+- API nueva: `GET /api/announcements` → `{success, enabled, items[]}`. Se guarda en `app_settings` (no requiere tablas nuevas).
+- **Opciones de enlaces más compactas:** cada fuente es una ficha de una sola línea (ícono + nombre + tilde si es la activa),
+  sin el texto «Reproduciendo» que se cortaba. Directo / Web se distingue por el ícono. Hasta 4 fuentes en 2 columnas, más de 4 en 3.
+- Archivos modificados: `backend/src/manual.php`, `backend/api/index.php`, `backend/admin/index.php`, `backend/src/bootstrap.php`,
+  `app/lib/main.dart`, `app/lib/models.dart`, `app/lib/live_player.dart`, `app/pubspec.yaml`, `README.md`. La carpeta `.github` no cambia.
+
 ## Cambios 1.0.25
 - **Pantalla del reproductor rediseñada:**
   - **Logo de la competición** a la izquierda del título del partido. Se carga una sola vez en

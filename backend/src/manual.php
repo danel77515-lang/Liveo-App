@@ -538,3 +538,55 @@ function manual_event_by_key(string $key): ?array
     $list = manual_query_events('SELECT * FROM manual_events WHERE id = ? AND active = 1', [(int)$m[1]]);
     return $list[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Anuncios informativos (barra deslizante de la app)
+// ---------------------------------------------------------------------------
+
+/** Anuncios guardados: ['enabled' => bool, 'items' => string[]]. */
+function announcements_load(?PDO $pdo = null): array
+{
+    if ($pdo === null) {
+        $pdo = db();
+    }
+    $out = ['enabled' => true, 'items' => []];
+    if (!$pdo) {
+        return $out;
+    }
+    try {
+        $st = $pdo->prepare('SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?, ?)');
+        $st->execute(['announcements_on', 'announcements_text']);
+        foreach ($st->fetchAll() as $r) {
+            if ($r['setting_key'] === 'announcements_on') {
+                $out['enabled'] = (string)$r['setting_value'] !== '0';
+            } else {
+                $out['items'] = announcements_parse((string)$r['setting_value']);
+            }
+        }
+    } catch (Throwable $e) {
+        // Sin tabla de ajustes: sin anuncios.
+    }
+    return $out;
+}
+
+/** Una línea = un anuncio. Máximo 10 anuncios de 200 caracteres. */
+function announcements_parse(string $text): array
+{
+    $items = [];
+    foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
+        $line = trim((string)preg_replace('/\s+/u', ' ', $line));
+        if ($line === '') {
+            continue;
+        }
+        if (function_exists('mb_substr')) {
+            $line = mb_substr($line, 0, 200);
+        } else {
+            $line = substr($line, 0, 200);
+        }
+        $items[] = $line;
+        if (count($items) >= 10) {
+            break;
+        }
+    }
+    return $items;
+}
