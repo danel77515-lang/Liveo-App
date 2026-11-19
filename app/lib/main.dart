@@ -17,7 +17,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.26';
+const String liveoVersion = '1.0.27';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1136,6 +1136,36 @@ class _FavButton extends StatelessWidget {
 // Tarjeta de evento (compacta): hora | escudos y rivales | cuenta regresiva
 // ---------------------------------------------------------------------------
 
+/// Logo pequeño de la competición para la cabecera de la tarjeta. Va sobre una
+/// ficha clara para que cualquier logo se vea; si no carga, se ve un trofeo.
+class _CardLeagueLogo extends StatelessWidget {
+  const _CardLeagueLogo({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F4F8),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stack) => const Icon(
+          Icons.emoji_events_outlined,
+          size: 14,
+          color: Color(0xFF8B98A9),
+        ),
+      ),
+    );
+  }
+}
+
 /// Escudo del equipo (URL del panel) o, si no hay, sus iniciales.
 class _Crest extends StatelessWidget {
   const _Crest({required this.url, required this.name, this.size = 22});
@@ -1522,6 +1552,10 @@ class _EventCard extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(12, 0, 2, 0),
                     child: Row(
                       children: [
+                        if (event.leagueLogo != null) ...[
+                          _CardLeagueLogo(url: event.leagueLogo!),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: _Hl(
                             event.league,
@@ -1911,90 +1945,24 @@ class _SportSheet extends StatelessWidget {
   }
 }
 
-/// Ventana con las opciones (enlaces) de un evento, una debajo de la otra.
+/// Ventana con las señales (enlaces) de un evento: tarjeta centrada con borde
+/// degradado, una fila por señal y botón para cancelar.
 Future<void> _showSources(BuildContext context, LiveEvent e) async {
-  final picked = await showModalBottomSheet<int>(
+  final picked = await showGeneralDialog<int>(
     context: context,
-    showDragHandle: true,
-    backgroundColor: _cardColor(context),
-    builder: (ctx) {
-      final k = e.kickoff;
-      final sub = [
-        e.league,
-        if (k != null && !e.timeTbc) '${_dayLabel(k)} ${fmtHm(k)}',
-      ].where((x) => x.isNotEmpty).join(' · ');
-      return SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.65,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      e.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if (sub.isNotEmpty)
-                      Text(
-                        sub,
-                        style: TextStyle(fontSize: 12, color: _muted(ctx)),
-                      ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: e.links.length,
-                  separatorBuilder: (context, i) =>
-                      const Divider(height: 1, indent: 20, endIndent: 20),
-                  itemBuilder: (context, i) => ListTile(
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    leading: CircleAvatar(
-                      radius: 12,
-                      backgroundColor: Pal.accent.withValues(alpha: 0.16),
-                      child: Text(
-                        '${i + 1}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Pal.accent,
-                        ),
-                      ),
-                    ),
-                    title: Text(
-                      e.links[i].label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    trailing: Icon(
-                      e.links[i].isIframe
-                          ? Icons.language_rounded
-                          : Icons.play_circle_fill_rounded,
-                      color: Pal.accent,
-                    ),
-                    onTap: () => Navigator.of(ctx).pop(i),
-                  ),
-                ),
-              ),
-            ],
-          ),
+    barrierDismissible: true,
+    barrierLabel: 'Cerrar',
+    barrierColor: Colors.black.withValues(alpha: 0.72),
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (ctx, anim, sec) =>
+        SafeArea(child: Center(child: _SourcesDialog(event: e))),
+    transitionBuilder: (ctx, anim, sec, child) {
+      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.92, end: 1).animate(curved),
+          child: child,
         ),
       );
     },
@@ -2009,6 +1977,236 @@ Future<void> _showSources(BuildContext context, LiveEvent e) async {
       ),
     ),
   );
+}
+
+class _SourcesDialog extends StatelessWidget {
+  const _SourcesDialog({required this.event});
+
+  final LiveEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    final k = event.kickoff;
+    final sub = [
+      event.league,
+      if (k != null && !event.timeTbc) '${_dayLabel(k)} ${fmtHm(k)}',
+    ].where((x) => x.isNotEmpty).join(' · ');
+    final inner = dark ? const Color(0xff0e140f) : Colors.white;
+    final maxList = MediaQuery.of(context).size.height * 0.42;
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.all(1.5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(26),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Pal.lime, Pal.cyan],
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 22, 16, 14),
+          decoration: BoxDecoration(
+            color: inner,
+            borderRadius: BorderRadius.circular(24.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Pal.accent.withValues(alpha: 0.14),
+                    border: Border.all(
+                      color: Pal.accent.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.sensors_rounded,
+                    size: 30,
+                    color: Pal.accent,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Varias señales disponibles',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                event.title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: _muted(context)),
+              ),
+              if (sub.isNotEmpty)
+                Text(
+                  sub,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: _muted(context)),
+                ),
+              const SizedBox(height: 12),
+              Center(
+                child: Container(
+                  width: 96,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(2),
+                    gradient: const LinearGradient(
+                      colors: [Pal.lime, Pal.cyan],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxList),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: event.links.length,
+                  separatorBuilder: (context, i) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, i) => _SourceRow(
+                    index: i,
+                    source: event.links[i],
+                    onTap: () => Navigator.of(ctx).pop(i),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded, size: 18),
+                label: const Text('Cancelar'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  side: BorderSide(
+                    color: dark ? const Color(0xff26322a) : Colors.black12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Una señal dentro de la ventana de opciones.
+class _SourceRow extends StatelessWidget {
+  const _SourceRow({
+    required this.index,
+    required this.source,
+    required this.onTap,
+  });
+
+  final int index;
+  final StreamSource source;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    return Material(
+      color: dark ? const Color(0xff1a231d) : const Color(0xfff3f6f4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: dark ? const Color(0xff26322a) : Colors.black12,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          height: 52,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Pal.accent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Pal.accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    source.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: Pal.accent.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Text(
+                    source.isIframe ? 'WEB' : 'DIRECTO',
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: Pal.accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: _muted(context),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

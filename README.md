@@ -9,6 +9,16 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.27
+- **Logo de la competición en el inicio:** cada tarjeta de evento muestra el logo de la liga/competición a la izquierda de su
+  nombre (por ejemplo, el logo de Liga Profesional junto al texto «Liga Profesional»). Usa los logos que ya cargaste en
+  `admin/ → Competiciones`; si una competición no tiene logo no se muestra nada, y si la imagen no carga aparece un trofeo.
+- **Nueva ventana de señales:** al tocar un evento con varias señales se abre una ventana centrada (ya no la hoja de abajo),
+  con borde degradado, ícono de señal, título del partido, una fila por señal (número, nombre, etiqueta WEB / DIRECTO) y botón
+  «Cancelar». Se adapta al tema claro y oscuro. Con una sola señal el reproductor sigue abriéndose directo.
+- Archivos modificados: `app/lib/main.dart`, `app/pubspec.yaml`, `backend/src/bootstrap.php`, `README.md`.
+  La carpeta `.github` no cambia y el backend solo cambia el número de versión.
+
 ## Cambios 1.0.26
 - **Anuncios informativos en el inicio:** barra con megáfono y texto deslizante (como la de SportzX) arriba de los chips.
   Se cargan en `admin/ → Anuncios` (un anuncio por línea, hasta 10; pasan uno tras otro y se repiten) y se pueden
