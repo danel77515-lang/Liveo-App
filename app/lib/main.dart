@@ -16,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.23';
+const String liveoVersion = '1.0.24';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1272,19 +1272,19 @@ class _RightBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final muted = TextStyle(fontSize: 11, color: _muted(context));
     if (event.liveNow) {
-      // La señal (ondas) va pegada al texto, en la misma línea.
+      // La señal (ondas) va arriba y «EN VIVO» debajo.
       return const Center(
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _PulsingLive(size: 15),
-            SizedBox(width: 3),
+            _PulsingLive(size: 18),
+            SizedBox(height: 2),
             Text(
               'EN VIVO',
               style: TextStyle(
                 color: Pal.live,
                 fontWeight: FontWeight.w800,
-                fontSize: 11.5,
+                fontSize: 10.5,
                 letterSpacing: 0.3,
               ),
             ),

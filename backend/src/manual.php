@@ -252,13 +252,60 @@ function manual_duration_minutes(?PDO $pdo = null): int
     return max(30, min(720, $min));
 }
 
+/** Minutos que dura un partido de básquet (NBA, etc.). Por defecto 180. */
+function manual_basket_duration_minutes(?PDO $pdo = null): int
+{
+    static $cache = null;
+    if ($pdo === null) {
+        $pdo = db();
+    }
+    if ($cache !== null) {
+        return $cache;
+    }
+    $min = 180;
+    if ($pdo) {
+        try {
+            $st = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+            $st->execute(['manual_event_duration_basket']);
+            $v = $st->fetchColumn();
+            if ($v !== false && is_numeric($v)) {
+                $min = (int)$v;
+            }
+        } catch (Throwable $e) {
+            // Sin tabla de ajustes: se usa el valor por defecto.
+        }
+    }
+    $cache = max(60, min(720, $min));
+    return $cache;
+}
+
+/** true si el deporte/liga es básquet (NBA, baloncesto, basketball…). */
+function manual_is_basketball(string $sport, string $league = ''): bool
+{
+    $t = mb_strtolower($sport . ' ' . $league, 'UTF-8');
+    $t = strtr($t, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u']);
+    return preg_match('/basq|basket|baloncesto|\bnba\b|wnba|euroliga|euroleague|\bfiba\b|liga nacional de basq/', $t) === 1;
+}
+
+/** Duración automática según el deporte (si no hay una propia del evento). */
+function manual_sport_duration_minutes(string $sport, string $league, int $globalMin, ?PDO $pdo = null): int
+{
+    if (manual_is_basketball($sport, $league)) {
+        return manual_basket_duration_minutes($pdo);
+    }
+    return $globalMin;
+}
+
 /** Convierte una fila de manual_events al formato de evento de la API. */
 function manual_row_to_event(array $r, int $durationMin, int $now): array
 {
     $start = (int)$r['start_ts'];
     // Duración propia del evento (columna «hasta» del CSV); si no, la global.
+    // Sin duración propia: la del deporte (el básquet dura más que el fútbol) o la global.
     $own = (int)($r['duration_min'] ?? 0);
-    $durationMin = $own > 0 ? $own : $durationMin;
+    $durationMin = $own > 0
+        ? $own
+        : manual_sport_duration_minutes((string)($r['sport'] ?? ''), (string)($r['league'] ?? ''), $durationMin);
     $end = $start + $durationMin * 60;
     $tbc = !empty($r['time_tbc']);
     $mode = (string)$r['state_mode'];
@@ -382,7 +429,9 @@ function manual_events_live(): array
         return [];
     }
     $now = time();
-    $dur = manual_duration_minutes($pdo);
+    // El SQL solo preselecciona (con la duración más larga posible); el corte exacto
+    // por deporte lo hace manual_row_to_event() y el filtro de abajo.
+    $dur = max(manual_duration_minutes($pdo), manual_basket_duration_minutes($pdo));
     return array_values(array_filter(manual_query_events(
         "SELECT * FROM manual_events WHERE active = 1 AND (state_mode = 'live'
             OR (state_mode = 'auto' AND time_tbc = 0 AND start_ts <= ? AND start_ts + COALESCE(NULLIF(duration_min, 0), ?) * 60 > ?))

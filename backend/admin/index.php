@@ -234,7 +234,7 @@ function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
         <div class="grid">
           <label>Inicio<input type="datetime-local" name="start" id="start-<?= h($uid) ?>" value="<?= h((string)($v['start'] ?? '')) ?>" required></label>
           <label>Finalización automática<input type="datetime-local" id="end-<?= h($uid) ?>" class="auto-end" disabled>
-            <span class="mut">Se calcula automáticamente <?= (int)$dur ?> minutos después del inicio. Puedes cambiar esta duración en <a class="link" href="?v=config">Configuración</a>.</span></label>
+            <span class="mut">Se calcula automáticamente <?= (int)$dur ?> minutos después del inicio (<?= (int)manual_basket_duration_minutes($pdo) ?> si es básquet). Puedes cambiar estas duraciones en <a class="link" href="?v=config">Configuración</a>.</span></label>
         </div>
         <label style="color:var(--txt)"><input type="checkbox" name="time_tbc" value="1" <?= !empty($v['time_tbc']) ? 'checked' : '' ?>> Hora a confirmar (solo cuenta la fecha; no arranca solo)</label>
         <label>Duración en minutos (opcional; vacío = la general de Configuración)
@@ -260,17 +260,30 @@ function manual_form_html(PDO $pdo, array $v, int $mid, int $dur): string
       (function () {
         var s = document.getElementById('start-<?= h($uid) ?>');
         var e = document.getElementById('end-<?= h($uid) ?>');
-        var mins = <?= (int)$dur ?>;
+        var baseMins = <?= (int)$dur ?>;
+        var basketMins = <?= (int)manual_basket_duration_minutes($pdo) ?>;
+        var f = s.form;
         function pad(n) { return (n < 10 ? '0' : '') + n; }
+        function isBasket() {
+          var t = ((f.elements['sport'] ? f.elements['sport'].value : '') + ' ' + (f.elements['league'] ? f.elements['league'].value : '')).toLowerCase();
+          t = t.normalize ? t.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : t;
+          return /basq|basket|baloncesto|\bnba\b|wnba|euroliga|euroleague|\bfiba\b/.test(t);
+        }
         function upd() {
           if (!s.value) { e.value = ''; return; }
           var d = new Date(s.value);
           if (isNaN(d.getTime())) { e.value = ''; return; }
+          var own = f.elements['duration'] ? parseInt(f.elements['duration'].value, 10) : 0;
+          var mins = own > 0 ? own : (isBasket() ? basketMins : baseMins);
           d = new Date(d.getTime() + mins * 60000);
           e.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
         }
-        s.addEventListener('input', upd);
-        s.addEventListener('change', upd);
+        ['input', 'change'].forEach(function (ev) {
+          s.addEventListener(ev, upd);
+          ['sport', 'league', 'duration'].forEach(function (n) {
+            if (f.elements[n]) { f.elements[n].addEventListener(ev, upd); }
+          });
+        });
         upd();
       })();
       </script>
@@ -737,11 +750,15 @@ if ($method === 'POST' && !$fatal) {
 
             case 'config_save':
                 $minutes = (int)($_POST['duration'] ?? 0);
+                $basket = (int)($_POST['duration_basket'] ?? 0);
                 if ($minutes < 30 || $minutes > 720) {
                     flash('bad', 'La duración debe estar entre 30 y 720 minutos.');
+                } elseif ($basket < 60 || $basket > 720) {
+                    flash('bad', 'La duración del básquet debe estar entre 60 y 720 minutos.');
                 } else {
                     set_setting($pdo, 'manual_event_duration', (string)$minutes);
-                    flash('ok', 'Duración guardada: ' . $minutes . ' minutos.');
+                    set_setting($pdo, 'manual_event_duration_basket', (string)$basket);
+                    flash('ok', 'Duraciones guardadas: general ' . $minutes . ' min, básquet ' . $basket . ' min.');
                 }
                 go('v=config');
                 break;
@@ -1074,6 +1091,23 @@ if ($fatal) {
             $linkCounts[(string)$r['event_id']] = [(int)$r['n'], (int)$r['act']];
         }
         $durMin = manual_duration_minutes($pdo);
+        // Los eventos en vivo van primero (conservando el orden original dentro de cada grupo).
+        $liveRows = [];
+        $otherRows = [];
+        foreach ($rows as $r) {
+            $ev = manual_row_to_event($r, $durMin, $nowTs);
+            if (!empty($ev['live'])) {
+                $liveRows[] = $r;
+            } else {
+                $otherRows[] = $r;
+            }
+        }
+        if ($liveRows) {
+            usort($liveRows, function ($a, $b) {
+                return ((int)$a['start_ts'] <=> (int)$b['start_ts']) ?: ((int)$a['id'] <=> (int)$b['id']);
+            });
+            $rows = array_merge($liveRows, $otherRows);
+        }
         ?>
         <div class="card">
           <form method="get" class="filters">
@@ -1128,6 +1162,7 @@ if ($fatal) {
     } elseif ($view === 'config') {
         // ---- Configuración -------------------------------------------------------
         $durMin = manual_duration_minutes($pdo);
+        $basketMin = manual_basket_duration_minutes($pdo);
         ?>
         <div class="card narrow" style="margin:0 0 17px;max-width:560px">
           <h2>Configuración</h2>
@@ -1138,6 +1173,10 @@ if ($fatal) {
               <input type="number" name="duration" min="30" max="720" value="<?= (int)$durMin ?>" required>
             </label>
             <p class="mut">Define cuándo termina un evento en estado «Automático por horario»: inicio + esta duración. Mientras tanto figura en vivo y después pasa a finalizado. Por defecto 135 minutos (entre 30 y 720).</p>
+            <label>Duración de un partido de básquet / NBA (minutos)
+              <input type="number" name="duration_basket" min="60" max="720" value="<?= (int)$basketMin ?>" required>
+            </label>
+            <p class="mut">Se aplica a los eventos cuyo deporte o liga sea básquet, baloncesto, basketball o NBA (los pausas, tiempos muertos y tiempos extra hacen que duren más que el fútbol). Por defecto 180 minutos (entre 60 y 720). Si un evento tiene su propia duración, esa manda.</p>
             <div class="actions"><button type="submit">Guardar</button></div>
           </form>
         </div>

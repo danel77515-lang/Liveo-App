@@ -10,14 +10,15 @@ Liveo/
 ```
 
 ## Cambios 1.0.24
-- **Corrige Chromecast**: la app cargaba el video apenas pedía la conexión, pero en Android la sesión se
-  conecta un instante después y el plugin ignoraba la carga (el televisor quedaba sin reproducir). Ahora espera
-  a que la sesión esté conectada (hasta 20 s) antes de cargar la fuente.
-- Tras cargar, la app confirma que el televisor recibió el video y reintenta hasta 4 veces si no.
-- La búsqueda de dispositivos pasa a **escaneo activo** (el pasivo suele no encontrar el Chromecast).
-- Avisa si el televisor no puede reproducir la fuente y muestra el motivo real si Cast no arranca.
-- Workflow: permisos de red de Cast (`ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, …) y `targetSdk 36`
-  fijo (con target 37 Android 17 bloquea la red local sin un permiso en tiempo de ejecución).
+- **Básquet / NBA con duración propia:** los partidos de básquet (deporte o competición con «básquet», «baloncesto»,
+  «basketball» o «NBA») ya no se marcan como finalizados a los 135 min como el fútbol: por defecto duran **180 min**
+  desde el inicio (cubre pausas, tiempos muertos y tiempo extra). Se cambia en `admin/ → Configuración →
+  «Duración de un partido de básquet»`. Orden de prioridad: duración propia del evento > deporte (básquet) > general.
+- El preview «Finalización automática» del formulario del evento también tiene en cuenta el deporte.
+- **Panel → Eventos:** los partidos **en vivo** aparecen primero en la lista (después, el orden de siempre).
+- **App → tarjeta en vivo:** las ondas de señal animadas van **arriba** y «EN VIVO» **abajo** (texto un poco más chico:
+  11.5 → 10.5; ondas 15 → 18).
+- Archivos modificados: `backend/src/manual.php`, `backend/admin/index.php`, `app/lib/main.dart` y `app/pubspec.yaml`.
 
 ## Cambios 1.0.23 (solo app; el backend sigue en 1.0.22)
 - **Reproductor:** la insignia queda siempre como **«EN VIVO»** (ya no cambia a «IR AL DIRECTO»); si el video quedó
