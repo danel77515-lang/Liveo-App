@@ -9,6 +9,22 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.28
+- **Equipos y competiciones sin repetir:** cada equipo y cada competición tiene ahora un único nombre. Al importar un CSV (y al guardar
+  un evento a mano) Liveo pasa los nombres al que ya existe: une las variantes con otras tildes o mayúsculas, las que solo cambian
+  «1.», «FC», «VfB», «VfL»… (por ejemplo «1. FC Köln» = «Köln») y los alias de fábrica («Atlético-MG» = «Atlético Mineiro»,
+  «Athletico-PR» = «Athletico Paranaense», «Brasileirão Série A» = «Brasileirão»). Se prefiere siempre el nombre que ya tiene escudo / logo.
+- **Menú nuevo «Nombres»** en el panel: ahí agregas tus propios alias, una línea por alias (`Alias = Nombre oficial`; para competiciones
+  `liga: Alias = Nombre oficial`). Al guardar se corrigen también los eventos ya cargados.
+- **Importar dos CSV distintos ya no duplica partidos:** la clave de importación pasa a ser fecha + local + visitante (antes incluía el
+  nombre de la competición y el texto del evento). Si el partido ya existe (mismos equipos, ±24 h) se actualiza en lugar de crear otro,
+  aunque lo hubieras creado a mano.
+- **Limpieza automática, una sola vez:** al abrir el panel o la API después de subir esta versión, los nombres repetidos que ya estaban
+  en la base se unifican, se recalculan las claves y, si hubiera un mismo partido cargado dos veces, se funde en uno (conserva sus señales
+  y favoritos). No hay que ejecutar ningún SQL.
+- Archivos modificados: `backend/src/manual.php`, `backend/src/importer.php`, `backend/admin/index.php`, `backend/src/bootstrap.php`,
+  `app/lib/main.dart`, `app/pubspec.yaml`, `README.md`. La carpeta `.github` no cambia.
+
 ## Cambios 1.0.27
 - **Logo de la competición en el inicio:** cada tarjeta de evento muestra el logo de la liga/competición a la izquierda de su
   nombre (por ejemplo, el logo de Liga Profesional junto al texto «Liga Profesional»). Usa los logos que ya cargaste en

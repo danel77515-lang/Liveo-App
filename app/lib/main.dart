@@ -17,7 +17,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.27';
+const String liveoVersion = '1.0.28';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
