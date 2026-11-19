@@ -16,7 +16,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.24';
+const String liveoVersion = '1.0.25';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -675,8 +675,33 @@ Future<void> openEvent(BuildContext context, LiveEvent e) async {
     await _showSources(context, e);
     return;
   }
-  await Navigator.of(context)
-      .push(MaterialPageRoute<void>(builder: (_) => LivePlayerPage(event: e)));
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => LivePlayerPage(event: e, relatedOf: relatedEventsFor),
+    ),
+  );
+}
+
+/// Partidos para mostrar bajo el video: los de la misma competición que aún no
+/// terminaron (en vivo primero, después por hora). Si no hay, los del mismo deporte.
+List<LiveEvent> relatedEventsFor(LiveEvent e) {
+  final from = syncedNow().subtract(const Duration(minutes: 10));
+  bool open(LiveEvent x) {
+    if (x.id == e.id || x.stateLabel != null) return false;
+    if (x.liveNow) return true;
+    final k = x.kickoff;
+    return k != null && k.isAfter(from);
+  }
+
+  final pool = EventsStore.instance.all.where(open).toList();
+  final lg = e.league.trim().toLowerCase();
+  var out = pool.where((x) => x.league.trim().toLowerCase() == lg).toList();
+  if (out.isEmpty && e.sport.isNotEmpty) {
+    final sp = e.sport.trim().toLowerCase();
+    out = pool.where((x) => x.sport.trim().toLowerCase() == sp).toList();
+  }
+  out.sort(_liveFirst);
+  return out.take(12).toList();
 }
 
 class HomePage extends StatefulWidget {
@@ -1976,7 +2001,11 @@ Future<void> _showSources(BuildContext context, LiveEvent e) async {
   if (picked == null || !context.mounted) return;
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => LivePlayerPage(event: e, initialIndex: picked),
+      builder: (_) => LivePlayerPage(
+        event: e,
+        initialIndex: picked,
+        relatedOf: relatedEventsFor,
+      ),
     ),
   );
 }

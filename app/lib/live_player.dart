@@ -17,9 +17,17 @@ import 'theme.dart';
 /// Minimalista: video a pantalla completa en horizontal, controles que se
 /// ocultan solos, selector de fuentes, imagen en imagen (PiP) y Chromecast.
 class LivePlayerPage extends StatefulWidget {
-  const LivePlayerPage({super.key, required this.event, this.initialIndex = 0});
+  const LivePlayerPage({
+    super.key,
+    required this.event,
+    this.initialIndex = 0,
+    this.relatedOf,
+  });
 
   final LiveEvent event;
+
+  /// Partidos relacionados (misma competición) que se muestran debajo del video.
+  final List<LiveEvent> Function(LiveEvent event)? relatedOf;
 
   /// Fuente con la que arranca (la elegida en la ventana de opciones).
   final int initialIndex;
@@ -29,6 +37,10 @@ class LivePlayerPage extends StatefulWidget {
 }
 
 class _LivePlayerPageState extends State<LivePlayerPage> {
+  late LiveEvent _ev = widget.event;
+  List<LiveEvent> _related = const <LiveEvent>[];
+  Timer? _relTimer;
+  final ScrollController _infoScroll = ScrollController();
   VideoPlayerController? _vc;
   WebViewController? _web; // fuente iframe (página web)
   bool _webLoading = false;
@@ -48,7 +60,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   bool _remotePlaying = true;
   StreamSubscription<bool>? _castSub;
 
-  List<StreamSource> get _links => widget.event.links;
+  List<StreamSource> get _links => _ev.links;
   StreamSource get _src => _links[_index];
   bool get _isIframe => _links.isNotEmpty && _links[_index].isIframe;
 
@@ -72,8 +84,37 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         }
       });
     }
+    _related = widget.relatedOf?.call(_ev) ?? const <LiveEvent>[];
+    // Refresca la lista de relacionados (en vivo / próximos) cada 30 s.
+    _relTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final f = widget.relatedOf;
+      if (!mounted || f == null) return;
+      setState(() => _related = f(_ev));
+    });
     final start = widget.initialIndex;
     _open(start >= 0 && start < _links.length ? start : 0);
+  }
+
+  /// Pasa a otro partido sin salir de la pantalla del reproductor.
+  Future<void> _switchEvent(LiveEvent x) async {
+    if (x.links.isEmpty) {
+      _snack('Este evento todavía no tiene señal.');
+      return;
+    }
+    if (_casting) {
+      await CastService.stop();
+    }
+    if (!mounted) return;
+    setState(() {
+      _ev = x;
+      _casting = false;
+      _error = null;
+      _web = null;
+      _related = widget.relatedOf?.call(x) ?? const <LiveEvent>[];
+    });
+    if (_infoScroll.hasClients) _infoScroll.jumpTo(0);
+    _retries = 0;
+    await _open(0);
   }
 
   Future<void> _toggleOrientation() async {
@@ -86,6 +127,8 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   @override
   void dispose() {
     _disposed = true;
+    _relTimer?.cancel();
+    _infoScroll.dispose();
     _hideTimer?.cancel();
     _retryTimer?.cancel();
     _castSub?.cancel();
@@ -632,72 +675,352 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     );
   }
 
+  static const Color _boxColor = Color(0xFF131A23);
+
   Widget _infoPanel() {
-    final e = widget.event;
+    final e = _ev;
     final k = e.kickoff;
     final sub = [
       e.league,
       if (k != null && !e.timeTbc) '${fmtDm(k)} · ${fmtHm(k)}',
     ].where((x) => x.isNotEmpty).join(' · ');
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      controller: _infoScroll,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            e.title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (e.leagueLogo != null) ...[
+                _LeagueLogo(url: e.leagueLogo!),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (sub.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        sub,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-          if (sub.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              sub,
-              style: const TextStyle(color: Colors.white60, fontSize: 13),
-            ),
-          ],
           if (_links.length > 1) ...[
             const SizedBox(height: 18),
-            const Text(
-              'OPCIONES',
-              style: TextStyle(
-                color: Colors.white54,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < _links.length; i++)
-                  ChoiceChip(
-                    label: Text(_links[i].label),
-                    avatar: _links[i].isIframe
-                        ? const Icon(Icons.language_rounded, size: 16)
-                        : null,
-                    selected: i == _index,
-                    showCheckmark: false,
-                    selectedColor: Pal.accent.withValues(alpha: 0.25),
-                    backgroundColor: Colors.white10,
-                    side: BorderSide(
-                      color: i == _index ? Pal.accent : Colors.white24,
-                    ),
-                    labelStyle: TextStyle(
-                      color: i == _index ? Pal.accent : Colors.white70,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    onSelected: (_) => _selectSource(i),
-                  ),
-              ],
-            ),
+            _optionsBox(),
+          ],
+          if (_related.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            _relatedSection(),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Caja con las fuentes del evento: una ficha por opción, la activa resaltada.
+  Widget _optionsBox() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _boxColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune_rounded, size: 16, color: Colors.white54),
+              const SizedBox(width: 6),
+              const Text(
+                'OPCIONES',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_links.length} fuentes',
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, c) {
+              const gap = 8.0;
+              final w = (c.maxWidth - gap) / 2;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (var i = 0; i < _links.length; i++)
+                    SizedBox(width: w, child: _optionTile(i)),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _optionTile(int i) {
+    final s = _links[i];
+    final on = i == _index;
+    return Material(
+      color: on ? Pal.accent.withValues(alpha: 0.14) : Colors.white10,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: on ? Pal.accent : Colors.white12),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _selectSource(i),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: on
+                      ? Pal.accent.withValues(alpha: 0.25)
+                      : Colors.white12,
+                ),
+                child: Icon(
+                  s.isIframe
+                      ? Icons.language_rounded
+                      : Icons.play_arrow_rounded,
+                  size: 18,
+                  color: on ? Pal.accent : Colors.white70,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      s.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: on ? Pal.accent : Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                    Text(
+                      on ? 'Reproduciendo' : (s.isIframe ? 'Web' : 'Directo'),
+                      style: TextStyle(
+                        color: on
+                            ? Pal.accent.withValues(alpha: 0.8)
+                            : Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (on)
+                const Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: Pal.accent,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Otros partidos de la misma competición: llenan el espacio bajo el video.
+  Widget _relatedSection() {
+    final lg = _ev.league.trim().toLowerCase();
+    final same = _related.every((x) => x.league.trim().toLowerCase() == lg);
+    final title = same && _ev.league.isNotEmpty
+        ? 'MÁS PARTIDOS DE ${_ev.league.toUpperCase()}'
+        : 'OTROS PARTIDOS';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (final x in _related) _relatedTile(x),
+      ],
+    );
+  }
+
+  Widget _relatedTile(LiveEvent x) {
+    final live = x.liveNow;
+    final k = x.kickoff;
+    final now = syncedNow();
+    final today =
+        k != null &&
+        k.year == now.year &&
+        k.month == now.month &&
+        k.day == now.day;
+    final playable = x.links.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Opacity(
+        opacity: playable ? 1 : 0.6,
+        child: Material(
+          color: _boxColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: live ? Pal.live.withValues(alpha: 0.55) : Colors.white12,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _switchEvent(x),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 54,
+                    child: live
+                        ? const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.sensors_rounded,
+                                size: 18,
+                                color: Pal.live,
+                              ),
+                              Text(
+                                'EN VIVO',
+                                style: TextStyle(
+                                  color: Pal.live,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                k == null || x.timeTbc ? '--:--' : fmtHm(k),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (k != null)
+                                Text(
+                                  today ? 'Hoy' : fmtDm(k),
+                                  style: const TextStyle(
+                                    color: Pal.accent,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                  Container(width: 1, height: 30, color: Colors.white12),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: x.away.isEmpty
+                        ? Text(
+                            x.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                x.home,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                x.away,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                  const SizedBox(width: 8),
+                  playable
+                      ? const Icon(
+                          Icons.play_circle_fill_rounded,
+                          size: 24,
+                          color: Pal.accent,
+                        )
+                      : const Text(
+                          'Sin señal',
+                          style: TextStyle(color: Colors.white54, fontSize: 11),
+                        ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -866,7 +1189,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  widget.event.title,
+                  _ev.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -876,7 +1199,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                   ),
                 ),
                 Text(
-                  _links.length > 1 ? _src.label : widget.event.league,
+                  _links.length > 1 ? _src.label : _ev.league,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
@@ -958,6 +1281,35 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Logo de la competición: ficha clara y cuadrada para que cualquier logo se vea.
+class _LeagueLogo extends StatelessWidget {
+  const _LeagueLogo({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 52,
+      height: 52,
+      padding: const EdgeInsets.all(7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F4F8),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stack) => const Icon(
+          Icons.emoji_events_outlined,
+          color: Color(0xFF8B98A9),
+          size: 26,
+        ),
       ),
     );
   }

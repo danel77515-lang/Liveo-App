@@ -77,6 +77,12 @@ function ensure_manual_schema(PDO $pdo): void
         url VARCHAR(500) NOT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS league_logos (
+        name_key VARCHAR(120) NOT NULL PRIMARY KEY,
+        name VARCHAR(160) NOT NULL,
+        url VARCHAR(500) NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     $done = true;
 }
 
@@ -197,6 +203,80 @@ function team_logo_map(?PDO $pdo = null): array
     }
     try {
         foreach ($pdo->query('SELECT name_key, url FROM team_logos')->fetchAll() as $r) {
+            $map[(string)$r['name_key']] = (string)$r['url'];
+        }
+    } catch (Throwable $e) {
+        // Tabla aún no creada.
+    }
+    return $map;
+}
+
+/** Guarda el logo de una competición (todos sus partidos, presentes y futuros). */
+function remember_league_logo(PDO $pdo, string $name, string $url): void
+{
+    $key = team_key($name);
+    $url = trim($url);
+    if ($key === '' || $url === '') {
+        return;
+    }
+    $pdo->prepare('REPLACE INTO league_logos (name_key, name, url) VALUES (?, ?, ?)')
+        ->execute([$key, substr(trim($name), 0, 160), substr($url, 0, 500)]);
+}
+
+/**
+ * Guarda una imagen subida como logo de la competición.
+ * Devuelve ['ok' => bool, 'url' => 'uploads/logos/…', 'error' => string].
+ */
+function save_league_logo_upload(PDO $pdo, string $leagueName, array $file): array
+{
+    $key = team_key($leagueName);
+    if ($key === '') {
+        return ['ok' => false, 'url' => '', 'error' => 'Nombre de competición vacío.'];
+    }
+    if ((int)($file['error'] ?? 4) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$file['tmp_name'])) {
+        return ['ok' => false, 'url' => '', 'error' => 'No se pudo recibir el archivo.'];
+    }
+    if ((int)$file['size'] > 1536 * 1024) {
+        return ['ok' => false, 'url' => '', 'error' => 'La imagen supera 1,5 MB.'];
+    }
+    $info = @getimagesize((string)$file['tmp_name']);
+    $ext = [IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'][$info[2] ?? 0] ?? null;
+    if ($ext === null) {
+        return ['ok' => false, 'url' => '', 'error' => 'Solo se aceptan imágenes PNG, JPG, WEBP o GIF.'];
+    }
+    $dir = logo_dir();
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+        return ['ok' => false, 'url' => '', 'error' => 'No se pudo crear la carpeta uploads/logos.'];
+    }
+    $slug = trim((string)preg_replace('/[^a-z0-9]+/', '-', $key), '-');
+    $name = 'liga-' . $slug . '-' . substr((string)sha1_file((string)$file['tmp_name']), 0, 8) . '.' . $ext;
+    if (!@move_uploaded_file((string)$file['tmp_name'], $dir . '/' . $name)) {
+        return ['ok' => false, 'url' => '', 'error' => 'No se pudo guardar la imagen en uploads/logos.'];
+    }
+    // Borra el logo subido anterior de la misma competición.
+    $st = $pdo->prepare('SELECT url FROM league_logos WHERE name_key = ?');
+    $st->execute([$key]);
+    $old = (string)($st->fetchColumn() ?: '');
+    if (strncmp($old, 'uploads/logos/', 14) === 0 && basename($old) !== $name) {
+        @unlink($dir . '/' . basename($old));
+    }
+    return ['ok' => true, 'url' => 'uploads/logos/' . $name, 'error' => ''];
+}
+
+/** [clave => url] de los logos guardados por competición (una consulta por petición). */
+function league_logo_map(?PDO $pdo = null): array
+{
+    static $map = null;
+    if ($map !== null) {
+        return $map;
+    }
+    $map = [];
+    $pdo = $pdo ?: db();
+    if (!$pdo) {
+        return $map;
+    }
+    try {
+        foreach ($pdo->query('SELECT name_key, url FROM league_logos')->fetchAll() as $r) {
             $map[(string)$r['name_key']] = (string)$r['url'];
         }
     } catch (Throwable $e) {
@@ -359,6 +439,13 @@ function manual_row_to_event(array $r, int $durationMin, int $now): array
     }
     if ($al === '' && $away !== '') {
         $al = $logos[team_key($away)] ?? '';
+    }
+    // Logo de la competición (se carga una vez en el panel: Competiciones).
+    if ($league !== '') {
+        $ll = league_logo_map()[team_key($league)] ?? '';
+        if ($ll !== '') {
+            $ev['league_logo'] = logo_public_url($ll);
+        }
     }
     if ($hl !== '') {
         $ev['home_logo'] = logo_public_url($hl);

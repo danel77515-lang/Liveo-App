@@ -9,6 +9,18 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.25
+- **Pantalla del reproductor rediseñada:**
+  - **Logo de la competición** a la izquierda del título del partido. Se carga una sola vez en
+    `admin/ → Competiciones` (URL o subiendo la imagen) y aparece en todos los partidos de esa competición.
+  - **Caja de opciones** más presentable: una ficha por fuente (Directo / Web), la activa resaltada como «Reproduciendo».
+    Solo aparece cuando el evento tiene más de una fuente.
+  - **Más partidos** debajo del video (misma competición; si no hay, del mismo deporte): en vivo primero y después
+    por hora. Tocar uno cambia el reproductor a ese partido sin salir de la pantalla. Los que no tienen señal se ven atenuados.
+- Backend: tabla nueva `league_logos` (se crea sola al abrir el panel o la API) y campo `league_logo` en los eventos.
+- Archivos modificados: `backend/src/manual.php`, `backend/admin/index.php`, `backend/src/bootstrap.php`,
+  `app/lib/live_player.dart`, `app/lib/models.dart`, `app/lib/main.dart`, `app/pubspec.yaml`, `app/test/widget_test.dart`.
+
 ## Cambios 1.0.24
 - **Básquet / NBA con duración propia:** los partidos de básquet (deporte o competición con «básquet», «baloncesto»,
   «basketball» o «NBA») ya no se marcan como finalizados a los 135 min como el fútbol: por defecto duran **180 min**

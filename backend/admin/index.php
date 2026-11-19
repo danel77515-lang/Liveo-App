@@ -100,7 +100,7 @@ function known_team_names(PDO $pdo): array
 function admin_view(): string
 {
     $v = (string)($_GET['v'] ?? 'manual');
-    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos'], true) ? $v : 'manual';
+    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues'], true) ? $v : 'manual';
 }
 
 function valid_event_id(string $id): bool
@@ -681,6 +681,47 @@ if ($method === 'POST' && !$fatal) {
                 go('v=logos&q=' . rawurlencode((string)($_POST['q'] ?? '')));
                 break;
 
+            case 'leagues_save':
+                ensure_manual_schema($pdo);
+                $names = (array)($_POST['name'] ?? []);
+                $urls = (array)($_POST['url'] ?? []);
+                $files = $_FILES['file'] ?? null;
+                $saved = 0;
+                $del = $pdo->prepare('DELETE FROM league_logos WHERE name_key = ?');
+                foreach ($names as $i => $nm) {
+                    $nm = trim((string)$nm);
+                    $key = team_key($nm);
+                    if ($key === '') {
+                        continue;
+                    }
+                    if (is_array($files) && (int)($files['error'][$key] ?? 4) === UPLOAD_ERR_OK) {
+                        $r = save_league_logo_upload($pdo, $nm, [
+                            'tmp_name' => $files['tmp_name'][$key], 'error' => $files['error'][$key], 'size' => $files['size'][$key],
+                        ]);
+                        if ($r['ok']) {
+                            remember_league_logo($pdo, $nm, $r['url']);
+                            $saved++;
+                        } else {
+                            flash('bad', '«' . $nm . '»: ' . $r['error']);
+                        }
+                        continue;
+                    }
+                    $raw = trim((string)($urls[$i] ?? ''));
+                    if ($raw === '') {
+                        $del->execute([$key]);
+                        continue;
+                    }
+                    if (!logo_value_ok($raw)) {
+                        flash('bad', 'Logo de «' . $nm . '» ignorado: no es una URL http(s) válida.');
+                        continue;
+                    }
+                    remember_league_logo($pdo, $nm, $raw);
+                    $saved++;
+                }
+                flash('ok', 'Logos de competición guardados: ' . $saved . '. Se ven en todos sus partidos.');
+                go('v=leagues');
+                break;
+
             case 'logos_bulk':
                 // Varias imágenes a la vez: el nombre del archivo es el del equipo (Chelsea.png).
                 $b = $_FILES['bulk'] ?? null;
@@ -1208,6 +1249,57 @@ if ($fatal) {
           </p>
         </div>
         <?php
+    } elseif ($view === 'leagues') {
+        // ---- Logos de competiciones ------------------------------------------------
+        ensure_manual_schema($pdo);
+        $leagueMap = [];
+        foreach ($pdo->query('SELECT name_key, name, url FROM league_logos')->fetchAll() as $r) {
+            $leagueMap[(string)$r['name_key']] = ['name' => (string)$r['name'], 'url' => (string)$r['url']];
+        }
+        $leagues = [];
+        foreach ($pdo->query("SELECT DISTINCT league FROM manual_events WHERE league <> ''")->fetchAll(PDO::FETCH_COLUMN) as $name) {
+            $name = trim((string)$name);
+            $key = team_key($name);
+            if ($key !== '' && !isset($leagues[$key])) {
+                $leagues[$key] = ['name' => $name, 'url' => $leagueMap[$key]['url'] ?? ''];
+            }
+        }
+        foreach ($leagueMap as $key => $l) {
+            if (!isset($leagues[$key])) {
+                $leagues[$key] = ['name' => $l['name'], 'url' => $l['url']];
+            }
+        }
+        $list = array_values($leagues);
+        usort($list, function ($a, $b) {
+            return (($a['url'] === '') ? 0 : 1) <=> (($b['url'] === '') ? 0 : 1) ?: strcasecmp($a['name'], $b['name']);
+        });
+        $missingL = 0;
+        foreach ($list as $t) {
+            if ($t['url'] === '') {
+                $missingL++;
+            }
+        }
+        ?>
+        <div class="card">
+          <h2>Competiciones (<?= count($list) ?> · <?= $missingL ?> sin logo)</h2>
+          <p class="mut">Sube o pega el logo de cada competición (NBA, Brasileirão…) <b>una sola vez</b>: aparece a la izquierda del partido en la pantalla del reproductor de la app, en todos los eventos de esa competición. Vacía una URL para quitar el logo. Mejor PNG con fondo transparente, cuadrado.</p>
+          <?php if (!$list): ?><p class="mut">Todavía no hay competiciones: importa un CSV o crea un evento.</p><?php else: ?>
+          <form method="post" enctype="multipart/form-data">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="leagues_save">
+            <?php foreach ($list as $t): ?>
+              <div class="row" style="cursor:default">
+                <span class="t" style="width:44px"><?php if ($t['url'] !== ''): ?><img src="<?= h(strncmp($t['url'], 'uploads/', 8) === 0 ? '../' . $t['url'] : $t['url']) ?>" alt="" width="32" height="32" style="object-fit:contain" referrerpolicy="no-referrer"><?php endif; ?></span>
+                <span class="m" style="flex:0 0 170px"><b><?= h($t['name']) ?></b><input type="hidden" name="name[]" value="<?= h($t['name']) ?>"></span>
+                <span class="m"><input name="url[]" value="<?= h($t['url']) ?>" maxlength="500" placeholder="URL del logo, o sube una imagen →" style="margin-top:0"></span>
+                <span class="m" style="flex:0 0 190px"><input type="file" name="file[<?= h(team_key($t['name'])) ?>]" accept="image/png,image/jpeg,image/webp,image/gif" style="margin-top:0"></span>
+              </div>
+            <?php endforeach; ?>
+            <div class="actions" style="margin-top:14px"><button type="submit">Guardar logos</button></div>
+          </form>
+          <?php endif; ?>
+        </div>
+        <?php
     } else {
         // ---- Escudos por equipo ---------------------------------------------------
         $q = trim((string)($_GET['q'] ?? ''));
@@ -1378,6 +1470,7 @@ $view = admin_view();
       <a href="?v=manual" class="<?= in_array($view, ['manual', 'manual_new', 'event'], true) ? 'on' : '' ?>">Eventos</a>
       <a href="?v=import" class="<?= $view === 'import' ? 'on' : '' ?>">Importar CSV</a>
       <a href="?v=logos" class="<?= $view === 'logos' ? 'on' : '' ?>">Escudos</a>
+      <a href="?v=leagues" class="<?= $view === 'leagues' ? 'on' : '' ?>">Competiciones</a>
       <a href="?v=linked" class="<?= $view === 'linked' ? 'on' : '' ?>">Con enlaces</a>
       <a href="?v=config" class="<?= $view === 'config' ? 'on' : '' ?>">Configuración</a>
       <a href="../">Backend</a>

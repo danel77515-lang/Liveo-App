@@ -130,6 +130,7 @@ class LiveEvent {
     required this.kickoff,
     required this.status,
     this.sport = '',
+    this.leagueLogo,
     this.homeLogo,
     this.awayLogo,
     this.timeTbc = false,
@@ -152,6 +153,9 @@ class LiveEvent {
 
   /// Deporte (para el ícono de la tarjeta) y escudos opcionales.
   final String sport;
+
+  /// Logo de la competición (se carga en el panel: Competiciones).
+  final String? leagueLogo;
   final String? homeLogo;
   final String? awayLogo;
 
@@ -250,6 +254,7 @@ class LiveEvent {
       kickoff: _time(j['kickoff']),
       status: _name(j['status'], 'Horario a confirmar'),
       sport: _name(j['sport'], ''),
+      leagueLogo: logo(j['league_logo']),
       homeLogo: logo(j['home_logo']),
       awayLogo: logo(j['away_logo']),
       timeTbc: _truthy(j['time_tbc']),

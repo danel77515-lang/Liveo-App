@@ -91,4 +91,23 @@ void main() {
     expect(e.links[1].isIframe, isTrue);
     expect(e.playable, isTrue);
   });
+
+  test('LiveEvent.fromJson lee el logo de la competición (solo http/https)', () {
+    final ok = LiveEvent.fromJson({
+      'id': 'manual-2',
+      'league': 'NBA',
+      'home': 'A',
+      'away': 'B',
+      'league_logo': 'https://x.test/nba.png',
+    });
+    expect(ok.leagueLogo, 'https://x.test/nba.png');
+    final bad = LiveEvent.fromJson({
+      'id': 'manual-3',
+      'league': 'NBA',
+      'home': 'A',
+      'away': 'B',
+      'league_logo': 'javascript:alert(1)',
+    });
+    expect(bad.leagueLogo, isNull);
+  });
 }
