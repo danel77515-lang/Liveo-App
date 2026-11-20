@@ -1970,6 +1970,8 @@ class _SportSheet extends StatelessWidget {
                         child: SportGlyph(
                           s.name,
                           size: 24,
+                          logoSize: 38,
+                          logoRadius: 11,
                           color: on ? Pal.accent : _muted(context),
                         ),
                       ),

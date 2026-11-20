@@ -135,23 +135,43 @@ class SvgIcon extends StatelessWidget {
 
 /// Ícono de un deporte: su logo propio si el panel tiene uno, o el SVG elegido.
 class SportGlyph extends StatelessWidget {
-  const SportGlyph(this.sport, {super.key, this.size = 22, this.color});
+  const SportGlyph(
+    this.sport, {
+    super.key,
+    this.size = 22,
+    this.color,
+    this.logoSize,
+    this.logoRadius = 0,
+  });
 
   final String sport;
   final double size;
   final Color? color;
+
+  /// Tamaño del logo propio (si es null usa [size]). Permite que un logo
+  /// subido llene todo el recuadro mientras el ícono SVG queda más pequeño.
+  final double? logoSize;
+  final double logoRadius;
 
   @override
   Widget build(BuildContext context) {
     final svg = SvgIcon(SportIcons.forSport(sport), size: size, color: color);
     final logo = SportIcons.logoFor(sport);
     if (logo == null) return svg;
-    return Image.network(
-      logo,
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => svg,
+    final box = logoSize ?? size;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(logoRadius),
+      child: Image.network(
+        logo,
+        width: box,
+        height: box,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => SizedBox(
+          width: box,
+          height: box,
+          child: Center(child: svg),
+        ),
+      ),
     );
   }
 }
