@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 if (!defined('LIVEO_VERSION')) {
-    define('LIVEO_VERSION', '1.0.27');
+    define('LIVEO_VERSION', '1.0.29');
 }
 
 /** Configuración con valores por defecto aptos para XAMPP. */

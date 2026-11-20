@@ -100,7 +100,7 @@ function known_team_names(PDO $pdo): array
 function admin_view(): string
 {
     $v = (string)($_GET['v'] ?? 'manual');
-    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues', 'announcements'], true) ? $v : 'manual';
+    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues', 'announcements', 'aliases'], true) ? $v : 'manual';
 }
 
 function valid_event_id(string $id): bool
@@ -492,6 +492,8 @@ if ($method === 'POST' && !$fatal) {
             case 'save':
             case 'toggle':
             case 'delete':
+            case 'move_up':
+            case 'move_down':
             case 'test':
                 $id = (int)($_POST['id'] ?? 0);
                 $st = $pdo->prepare('SELECT * FROM event_sources WHERE id = ?');
@@ -503,7 +505,26 @@ if ($method === 'POST' && !$fatal) {
                 }
                 $eid = (string)$row['event_id'];
                 $back = 'v=event&id=' . rawurlencode($eid) . '&d=' . rawurlencode((string)($_POST['d'] ?? ''));
-                if ($a === 'delete') {
+                if ($a === 'move_up' || $a === 'move_down') {
+                    // Reordena: renumera 0..n-1 según el orden actual e intercambia con el vecino.
+                    $st = $pdo->prepare('SELECT id FROM event_sources WHERE event_id = ? ORDER BY sort_order ASC, id ASC');
+                    $st->execute([$eid]);
+                    $ids = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+                    $pos = array_search($id, $ids, true);
+                    if ($pos !== false) {
+                        $to = $a === 'move_up' ? $pos - 1 : $pos + 1;
+                        if ($to >= 0 && $to < count($ids)) {
+                            $tmp = $ids[$pos];
+                            $ids[$pos] = $ids[$to];
+                            $ids[$to] = $tmp;
+                        }
+                        $up = $pdo->prepare('UPDATE event_sources SET sort_order = ? WHERE id = ?');
+                        foreach ($ids as $i => $sid) {
+                            $up->execute([min(99, $i), $sid]);
+                        }
+                    }
+                    go($back . '#src-' . $id);
+                } elseif ($a === 'delete') {
                     $pdo->prepare('DELETE FROM event_sources WHERE id = ?')->execute([$id]);
                     flash('ok', 'Enlace eliminado.');
                 } elseif ($a === 'toggle') {
@@ -545,6 +566,12 @@ if ($method === 'POST' && !$fatal) {
                 if ($f['err'] !== null) {
                     flash('bad', $f['err']);
                     go($errGo);
+                }
+                // Un solo nombre por equipo y competición (así no se repiten en Escudos / Competiciones).
+                $f['league'] = canonical_name($pdo, 'league', $f['league']);
+                if ($f['away'] !== '') {
+                    $f['home'] = canonical_name($pdo, 'team', $f['home']);
+                    $f['away'] = canonical_name($pdo, 'team', $f['away']);
                 }
                 // Los escudos de equipos quedan guardados para todos sus partidos (presentes y futuros).
                 if ($f['away'] !== '') {
@@ -797,6 +824,29 @@ if ($method === 'POST' && !$fatal) {
                 go('v=announcements');
                 break;
 
+            case 'aliases_save':
+                $text = str_replace(["\r\n", "\r"], "\n", (string)($_POST['text'] ?? ''));
+                $text = trim(substr($text, 0, 6000));
+                set_setting($pdo, 'name_aliases', $text);
+                $al = name_aliases($pdo, true);
+                // Si el alias tenía escudo / logo y el nombre oficial no, se lo pasa al oficial.
+                foreach (['team' => 'team_logos', 'league' => 'league_logos'] as $kind => $tbl) {
+                    foreach (name_aliases_parse($text)[$kind] as $aKey => $canon) {
+                        $st = $pdo->prepare('SELECT url FROM ' . $tbl . ' WHERE name_key = ?');
+                        $st->execute([(string)$aKey]);
+                        $url = $st->fetchColumn();
+                        $st->execute([team_key($canon)]);
+                        if ($url !== false && $st->fetchColumn() === false) {
+                            $pdo->prepare('REPLACE INTO ' . $tbl . ' (name_key, name, url) VALUES (?, ?, ?)')
+                                ->execute([team_key($canon), substr($canon, 0, 160), (string)$url]);
+                        }
+                    }
+                }
+                $r = manual_unify_existing($pdo);
+                flash('ok', 'Nombres guardados. Renombrados: ' . $r['renamed'] . ' · partidos repetidos fundidos: ' . $r['merged'] . '.');
+                go('v=aliases');
+                break;
+
             case 'config_save':
                 $minutes = (int)($_POST['duration'] ?? 0);
                 $basket = (int)($_POST['duration_basket'] ?? 0);
@@ -990,13 +1040,21 @@ if ($fatal) {
         <div class="card">
           <h2>Enlaces del evento (<?= count($rows) ?>)</h2>
           <?php if (!$rows): ?><p class="mut">Todavía no hay enlaces. Agrega el primero abajo.</p><?php endif; ?>
-          <?php foreach ($rows as $r): ?>
-            <form method="post" class="src <?= (int)$r['active'] === 1 ? '' : 'off' ?>">
+          <?php foreach ($rows as $ri => $r): ?>
+            <form method="post" class="src <?= (int)$r['active'] === 1 ? '' : 'off' ?>" id="src-<?= (int)$r['id'] ?>">
               <?= $hidden ?>
               <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+              <button name="a" value="save" hidden aria-hidden="true" tabindex="-1"></button><?php /* Enter guarda (no mueve) */ ?>
               <div class="grid">
                 <label>Nombre<input name="label" value="<?= h($r['label']) ?>" maxlength="60"></label>
-                <label>Orden<input name="sort_order" type="number" min="0" max="99" value="<?= (int)$r['sort_order'] ?>"></label>
+                <div class="mover">
+                  <span class="mut">Posición <b><?= $ri + 1 ?></b> de <?= count($rows) ?></span>
+                  <div class="actions">
+                    <button name="a" value="move_up" class="alt" title="Subir (va antes)" <?= $ri === 0 ? 'disabled' : '' ?>>▲ Subir</button>
+                    <button name="a" value="move_down" class="alt" title="Bajar (va después)" <?= $ri === count($rows) - 1 ? 'disabled' : '' ?>>▼ Bajar</button>
+                  </div>
+                </div>
+                <input type="hidden" name="sort_order" value="<?= (int)$r['sort_order'] ?>">
               </div>
               <div class="grid">
                 <label>URL o código &lt;iframe&gt;<input name="url" value="<?= h(trim((string)($r['embed'] ?? '')) !== '' ? (string)$r['embed'] : (string)$r['url']) ?>" maxlength="2500" required></label>
@@ -1224,6 +1282,31 @@ if ($fatal) {
             <label style="color:var(--txt)"><input type="checkbox" name="enabled" value="1" <?= $ann['enabled'] ? 'checked' : '' ?>> Mostrar la barra de anuncios en la app</label>
             <div class="actions"><button type="submit">Guardar</button></div>
           </form>
+        </div>
+        <?php
+    } elseif ($view === 'aliases') {
+        // ---- Nombres unificados ----------------------------------------------------
+        $mine = (string)(get_setting($pdo, 'name_aliases') ?? '');
+        $def = [];
+        foreach (name_alias_defaults() as $kind => $pairs) {
+            foreach ($pairs as $a => $c) {
+                $def[] = ($kind === 'league' ? 'liga: ' : '') . $a . ' = ' . $c;
+            }
+        }
+        ?>
+        <div class="card narrow" style="margin:0 0 17px;max-width:720px">
+          <h2>Nombres unificados</h2>
+          <p class="mut">Cada equipo y cada competición debe llamarse <b>siempre igual</b>, aunque cada CSV lo escriba distinto («Atlético-MG» / «Atlético Mineiro», «Brasileirão Série A» / «Brasileirão»). Al importar y al guardar un evento, Liveo ya une solo las variantes con otras tildes o mayúsculas y las que solo cambian «1.», «FC», «VfB», «VfL»… Para los demás casos escribe <b>una línea por alias</b>: <code>Como lo escribe el CSV = Nombre oficial</code>. Para competiciones antepón <code>liga:</code>. El nombre oficial es el que tiene escudo / logo. Al guardar se corrigen también los eventos que ya están cargados.</p>
+          <form method="post">
+            <?= csrf_field() ?>
+            <input type="hidden" name="a" value="aliases_save">
+            <label>Tus alias
+              <textarea name="text" rows="8" maxlength="6000" placeholder="Man City = Manchester City&#10;liga: Serie A Brasil = Brasileirão"><?= h($mine) ?></textarea>
+            </label>
+            <div class="actions"><button type="submit">Guardar y unificar ahora</button></div>
+          </form>
+          <p class="mut" style="margin-top:14px">Ya incluidos de fábrica (no hace falta repetirlos):</p>
+          <pre style="white-space:pre-wrap;margin:0"><?= h(implode("\n", $def)) ?></pre>
         </div>
         <?php
     } elseif ($view === 'config') {
@@ -1462,6 +1545,8 @@ $view = admin_view();
   button:hover { filter:brightness(1.06); transform:translateY(-1px); }
   button.alt { background:#263850; color:#e3edf9; border:1px solid #344a66; }
   button.danger { background:rgba(255,115,125,.12); color:#ff9aa2; border:1px solid rgba(255,115,125,.3); }
+  .mover { display:flex; flex-direction:column; gap:6px; justify-content:flex-end; font-size:12px; }
+  button:disabled { opacity:.35; cursor:default; }
   .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   a.btn { display:inline-block; background:linear-gradient(135deg,var(--accent),#8be7c1); color:#092018; border-radius:10px; padding:10px 15px; font-weight:800; text-decoration:none; font-size:12px; }
   a.btn.alt { background:#263850; color:#e3edf9; border:1px solid #344a66; }
@@ -1497,6 +1582,7 @@ $view = admin_view();
       <a href="?v=import" class="<?= $view === 'import' ? 'on' : '' ?>">Importar CSV</a>
       <a href="?v=logos" class="<?= $view === 'logos' ? 'on' : '' ?>">Escudos</a>
       <a href="?v=leagues" class="<?= $view === 'leagues' ? 'on' : '' ?>">Competiciones</a>
+      <a href="?v=aliases" class="<?= $view === 'aliases' ? 'on' : '' ?>">Nombres</a>
       <a href="?v=linked" class="<?= $view === 'linked' ? 'on' : '' ?>">Con enlaces</a>
       <a href="?v=announcements" class="<?= $view === 'announcements' ? 'on' : '' ?>">Anuncios</a>
       <a href="?v=config" class="<?= $view === 'config' ? 'on' : '' ?>">Configuración</a>

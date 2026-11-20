@@ -590,7 +590,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     }
     // Vertical (por defecto): video arriba e información y fuentes debajo.
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0F14),
+      backgroundColor: _dk ? const Color(0xFF0B0F14) : const Color(0xFFF1F4F8),
       body: Column(
         children: [
           SafeArea(
@@ -675,7 +675,15 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     );
   }
 
-  static const Color _boxColor = Color(0xFF131A23);
+  bool get _dk => Theme.of(context).brightness == Brightness.dark;
+  Color get _boxColor => _dk ? const Color(0xFF131A23) : Colors.white;
+  Color get _fg => _dk ? Colors.white : const Color(0xFF111827);
+  Color get _fg70 => _dk ? Colors.white70 : const Color(0xFF374151);
+  Color get _fg60 => _dk ? Colors.white60 : const Color(0xFF4B5563);
+  Color get _fg54 => _dk ? Colors.white54 : const Color(0xFF6B7280);
+  Color get _fg38 => _dk ? Colors.white38 : const Color(0xFF9CA3AF);
+  Color get _line => _dk ? Colors.white12 : const Color(0x1F000000);
+  Color get _chipBg => _dk ? Colors.white10 : const Color(0x0D000000);
 
   Widget _infoPanel() {
     final e = _ev;
@@ -686,7 +694,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     ].where((x) => x.isNotEmpty).join(' · ');
     return SingleChildScrollView(
       controller: _infoScroll,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      padding: EdgeInsets.fromLTRB(16, 14, 16, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -695,7 +703,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             children: [
               if (e.leagueLogo != null) ...[
                 _LeagueLogo(url: e.leagueLogo!),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
               ],
               Expanded(
                 child: Column(
@@ -703,18 +711,18 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                   children: [
                     Text(
                       e.title,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: _fg,
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     if (sub.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Text(
                         sub,
-                        style: const TextStyle(
-                          color: Colors.white60,
+                        style: TextStyle(
+                          color: _fg60,
                           fontSize: 13,
                         ),
                       ),
@@ -725,11 +733,11 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             ],
           ),
           if (_links.length > 1) ...[
-            const SizedBox(height: 18),
+            SizedBox(height: 18),
             _optionsBox(),
           ],
           if (_related.isNotEmpty) ...[
-            const SizedBox(height: 22),
+            SizedBox(height: 22),
             _relatedSection(),
           ],
         ],
@@ -740,39 +748,39 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   /// Caja con las fuentes del evento: una ficha compacta por opción.
   Widget _optionsBox() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      padding: EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
         color: _boxColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: _line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.tune_rounded, size: 14, color: Colors.white54),
-              const SizedBox(width: 5),
-              const Text(
+              Icon(Icons.tune_rounded, size: 14, color: _fg54),
+              SizedBox(width: 5),
+              Text(
                 'OPCIONES',
                 style: TextStyle(
-                  color: Colors.white54,
+                  color: _fg54,
                   fontSize: 10.5,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1,
                 ),
               ),
-              const Spacer(),
+              Spacer(),
               Text(
                 '${_links.length} fuentes',
-                style: const TextStyle(color: Colors.white38, fontSize: 10.5),
+                style: TextStyle(color: _fg38, fontSize: 10.5),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, c) {
-              const gap = 6.0;
+              gap = 6.0;
               // 2 columnas hasta 4 fuentes; con más, 3 para que no crezca.
               final cols = _links.length <= 4 ? 2 : 3;
               final w = (c.maxWidth - gap * (cols - 1)) / cols;
@@ -797,38 +805,38 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     final s = _links[i];
     final on = i == _index;
     return Material(
-      color: on ? Pal.accent.withValues(alpha: 0.14) : Colors.white10,
+      color: on ? Pal.accent.withValues(alpha: 0.14) : _chipBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: on ? Pal.accent : Colors.white12),
+        side: BorderSide(color: on ? Pal.accent : _line),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _selectSource(i),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           child: Row(
             children: [
               Icon(
                 s.isIframe ? Icons.language_rounded : Icons.play_circle_rounded,
                 size: 18,
-                color: on ? Pal.accent : Colors.white60,
+                color: on ? Pal.accent : _fg60,
               ),
-              const SizedBox(width: 7),
+              SizedBox(width: 7),
               Expanded(
                 child: Text(
                   s.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: on ? Pal.accent : Colors.white,
+                    color: on ? Pal.accent : _fg,
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
                   ),
                 ),
               ),
               if (on)
-                const Icon(
+                Icon(
                   Icons.check_circle_rounded,
                   size: 16,
                   color: Pal.accent,
@@ -854,14 +862,14 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white54,
+          style: TextStyle(
+            color: _fg54,
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 1,
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8),
         for (final x in _related) _relatedTile(x),
       ],
     );
@@ -878,7 +886,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
         k.day == now.day;
     final playable = x.links.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: 8),
       child: Opacity(
         opacity: playable ? 1 : 0.6,
         child: Material(
@@ -886,20 +894,20 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
             side: BorderSide(
-              color: live ? Pal.live.withValues(alpha: 0.55) : Colors.white12,
+              color: live ? Pal.live.withValues(alpha: 0.55) : _line,
             ),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () => _switchEvent(x),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
                   SizedBox(
                     width: 54,
                     child: live
-                        ? const Column(
+                        ? Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
@@ -922,8 +930,8 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                             children: [
                               Text(
                                 k == null || x.timeTbc ? '--:--' : fmtHm(k),
-                                style: const TextStyle(
-                                  color: Colors.white70,
+                                style: TextStyle(
+                                  color: _fg70,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -931,7 +939,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                               if (k != null)
                                 Text(
                                   today ? 'Hoy' : fmtDm(k),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     color: Pal.accent,
                                     fontSize: 10.5,
                                     fontWeight: FontWeight.w600,
@@ -940,16 +948,16 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                             ],
                           ),
                   ),
-                  Container(width: 1, height: 30, color: Colors.white12),
-                  const SizedBox(width: 12),
+                  Container(width: 1, height: 30, color: _line),
+                  SizedBox(width: 12),
                   Expanded(
                     child: x.away.isEmpty
                         ? Text(
                             x.title,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: _fg,
                               fontSize: 13.5,
                               fontWeight: FontWeight.w600,
                             ),
@@ -961,19 +969,19 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                                 x.home,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
+                                style: TextStyle(
+                                  color: _fg,
                                   fontSize: 13.5,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              const SizedBox(height: 2),
+                              SizedBox(height: 2),
                               Text(
                                 x.away,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
+                                style: TextStyle(
+                                  color: _fg,
                                   fontSize: 13.5,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -981,16 +989,16 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
                             ],
                           ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   playable
-                      ? const Icon(
+                      ? Icon(
                           Icons.play_circle_fill_rounded,
                           size: 24,
                           color: Pal.accent,
                         )
-                      : const Text(
+                      : Text(
                           'Sin señal',
-                          style: TextStyle(color: Colors.white54, fontSize: 11),
+                          style: TextStyle(color: _fg54, fontSize: 11),
                         ),
                 ],
               ),

@@ -14,9 +14,10 @@ declare(strict_types=1);
  * - "evento" con formato «A vs B» se separa en local y visitante; si no, es un
  *   evento de un solo título (carrera, etapa, jornada…).
  * - Sin hora, el evento queda con «hora a confirmar» (no arranca solo).
- * - Volver a subir el mismo CSV actualiza los eventos en lugar de duplicarlos
- *   (clave: fecha + competición + evento). No pisa el estado, el minuto, la
- *   visibilidad ni una hora ya confirmada a mano.
+ * - Volver a subir el mismo CSV (o uno distinto con los mismos partidos) actualiza los
+ *   eventos en lugar de duplicarlos: la clave es fecha + local + visitante, y los nombres
+ *   de equipos y competiciones se pasan antes a su nombre único (ver canonical_name()).
+ *   No pisa el estado, el minuto, la visibilidad ni una hora ya confirmada a mano.
  */
 
 // XAMPP trae mbstring; esto solo evita un error fatal si estuviera desactivada.
@@ -228,6 +229,9 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
     $res = ['new' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => [], 'rows' => count($rows)];
 
     $find = $pdo->prepare('SELECT id, time_tbc, start_ts FROM manual_events WHERE import_key = ?');
+    $pair = $pdo->prepare(
+        'SELECT id, time_tbc, start_ts FROM manual_events WHERE home = ? AND away = ? AND start_ts BETWEEN ? AND ? ORDER BY id LIMIT 1'
+    );
     $ins = $pdo->prepare(
         'INSERT INTO manual_events (sport, league, home, away, title, start_ts, state_mode, active, minute, home_logo, away_logo, time_tbc, duration_min, import_key)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)'
@@ -275,6 +279,13 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
             $league = mb_substr((string)($row['liga'] ?? ''), 0, 160);
             $home = mb_substr($home, 0, 120);
             $away = mb_substr($away, 0, 120);
+            // Un solo nombre por equipo y competición: «Atlético-MG» = «Atlético Mineiro»,
+            // «Brasileirão Série A» = «Brasileirão». Así un CSV nuevo no duplica a uno anterior.
+            $league = canonical_name($pdo, 'league', $league);
+            if ($away !== '') {
+                $home = canonical_name($pdo, 'team', $home);
+                $away = canonical_name($pdo, 'team', $away);
+            }
             $title = ''; // el título se arma solo: «Local vs Visitante» o el nombre del evento
             $state = csv_parse_state((string)($row['estado'] ?? ''));
             $minute = mb_substr(trim((string)($row['minuto'] ?? '')), 0, 12);
@@ -291,10 +302,17 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
                 $hl = '';
                 $al = '';
             }
-            $key = sha1($date . '|' . team_key($league) . '|' . team_key($evento !== '' ? $evento : $home . ' vs ' . $away));
+            $key = manual_import_key($date, $league, $home, $away);
 
             $find->execute([$key]);
             $cur = $find->fetch();
+            $adopt = false;
+            if (!$cur && $away !== '') {
+                // Sin la misma clave: ¿ya existe ese partido (mismos equipos, ±24 h)? Se actualiza, no se duplica.
+                $pair->execute([$home, $away, $start - 86400, $start + 86400]);
+                $cur = $pair->fetch();
+                $adopt = (bool)$cur;
+            }
             if ($cur) {
                 // Una hora ya confirmada no se pierde si el CSV todavía no la trae.
                 if ($tbc === 1 && (int)$cur['time_tbc'] === 0) {
@@ -303,6 +321,10 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
                 }
                 $set = 'sport = ?, league = ?, home = ?, away = ?, title = ?, start_ts = ?, time_tbc = ?';
                 $par = [$sport, $league, $home, $away, $title, $start, $tbc];
+                if ($adopt) {
+                    $set .= ', import_key = ?';
+                    $par[] = $key;
+                }
                 if ($dur !== null) {
                     $set .= ', duration_min = ?';
                     $par[] = $dur;

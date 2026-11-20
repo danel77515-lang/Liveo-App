@@ -84,6 +84,19 @@ function ensure_manual_schema(PDO $pdo): void
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     $done = true;
+
+    // Una sola vez: unifica los nombres repetidos que ya haya (de CSV cargados antes).
+    try {
+        $st = $pdo->prepare('SELECT 1 FROM app_settings WHERE setting_key = ?');
+        $st->execute(['names_unified_v1']);
+        if ($st->fetchColumn() === false) {
+            manual_unify_existing($pdo);
+            $pdo->prepare('REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)')
+                ->execute(['names_unified_v1', '1']);
+        }
+    } catch (Throwable $e) {
+        // Sin tabla de ajustes todavía: se intenta en la próxima carga.
+    }
 }
 
 /** Nombre de equipo -> clave para comparar (minúsculas, sin acentos ni signos). */
@@ -101,6 +114,299 @@ function team_key(string $name): string
     $t = strtolower($t);
     $t = preg_replace('/[^a-z0-9]+/', ' ', $t) ?? $t;
     return substr(trim($t), 0, 120);
+}
+
+// ---------------------------------------------------------------------------
+// Nombres únicos: un equipo o una competición se llama siempre igual
+// ---------------------------------------------------------------------------
+
+/**
+ * Alias que vienen de fábrica: «como lo escribió el CSV» => «como se llama en Liveo».
+ * El nombre oficial es el que ya tiene escudo / logo. Se amplían desde el panel
+ * (menú «Nombres»).
+ */
+function name_alias_defaults(): array
+{
+    return [
+        'team' => [
+            'Athletico-PR'         => 'Athletico Paranaense',
+            'Atlético-MG'          => 'Atlético Mineiro',
+            '1. FC Köln'           => 'Köln',
+            '1. FC Kaiserslautern' => 'Kaiserslautern',
+            'Darmstadt 98'         => 'Darmstadt',
+            'FC Augsburg'          => 'Augsburg',
+            'SC Freiburg'          => 'Freiburg',
+            'VfB Stuttgart'        => 'Stuttgart',
+            'VfL Bochum'           => 'Bochum',
+        ],
+        'league' => [
+            'Brasileirão Série A' => 'Brasileirão',
+        ],
+    ];
+}
+
+/** Texto del panel -> ['team' => [clave => oficial], 'league' => [...]]. «Alias = Oficial»; «liga: Alias = Oficial». */
+function name_aliases_parse(string $text): array
+{
+    $out = ['team' => [], 'league' => []];
+    foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') {
+            continue;
+        }
+        $kind = 'team';
+        if (preg_match('/^(liga|competicion|competición|league)\s*:\s*(.+)$/iu', $line, $m) === 1) {
+            $kind = 'league';
+            $line = trim($m[2]);
+        }
+        $p = strpos($line, '=');
+        if ($p === false) {
+            continue;
+        }
+        $alias = trim(substr($line, 0, $p));
+        $canon = trim(substr($line, $p + 1));
+        $k = team_key($alias);
+        if ($k === '' || $canon === '' || $k === team_key($canon)) {
+            continue;
+        }
+        $out[$kind][$k] = $canon;
+    }
+    return $out;
+}
+
+/** Alias en uso: los de fábrica + los que se escribieron en el panel (estos mandan). */
+function name_aliases(PDO $pdo, bool $reload = false): array
+{
+    static $cache = null;
+    if ($cache !== null && !$reload) {
+        return $cache;
+    }
+    $cache = ['team' => [], 'league' => []];
+    foreach (name_alias_defaults() as $kind => $pairs) {
+        foreach ($pairs as $alias => $canon) {
+            $cache[$kind][team_key((string)$alias)] = $canon;
+        }
+    }
+    try {
+        $st = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+        $st->execute(['name_aliases']);
+        $v = $st->fetchColumn();
+        if ($v !== false) {
+            foreach (name_aliases_parse((string)$v) as $kind => $pairs) {
+                foreach ($pairs as $k => $canon) {
+                    $cache[$kind][(string)$k] = $canon;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        // Sin tabla de ajustes: solo los alias de fábrica.
+    }
+    return $cache;
+}
+
+/** Palabras que no distinguen a un equipo: «1. FC Köln» y «Köln» son el mismo. */
+function team_loose_key(string $name): string
+{
+    $skip = ['fc', '1', '04', '05', '96', '98', '1899', 'vfb', 'vfl', 'tsg', 'fsv'];
+    $w = [];
+    foreach (explode(' ', team_key($name)) as $x) {
+        if ($x !== '' && !in_array($x, $skip, true)) {
+            $w[] = $x;
+        }
+    }
+    return implode(' ', $w);
+}
+
+/**
+ * Nombres ya conocidos de un tipo ('team' / 'league'): los que tienen escudo o logo
+ * guardado (pesan mucho) y los que ya se usan en eventos. Con $add se registra un
+ * nombre nuevo en el índice sin volver a consultar la base.
+ * Devuelve ['key' => [clave => [nombre, peso total, peso del mejor]], 'loose' => [clave suelta => [clave...]]].
+ */
+function name_index(PDO $pdo, string $kind, bool $reload = false, ?string $add = null): array
+{
+    static $idx = [];
+    if (!isset($idx[$kind]) || $reload) {
+        $w = []; // nombre => peso
+        try {
+            if ($kind === 'team') {
+                $logos = $pdo->query('SELECT name FROM team_logos')->fetchAll(PDO::FETCH_COLUMN);
+                $used = $pdo->query("SELECT home FROM manual_events WHERE away <> '' UNION ALL SELECT away FROM manual_events WHERE away <> ''")->fetchAll(PDO::FETCH_COLUMN);
+            } else {
+                $logos = $pdo->query('SELECT name FROM league_logos')->fetchAll(PDO::FETCH_COLUMN);
+                $used = $pdo->query("SELECT league FROM manual_events WHERE league <> ''")->fetchAll(PDO::FETCH_COLUMN);
+            }
+            foreach ($logos as $n) {
+                $n = trim((string)$n);
+                $w[$n] = ($w[$n] ?? 0) + 1000;
+            }
+            foreach ($used as $n) {
+                $n = trim((string)$n);
+                $w[$n] = ($w[$n] ?? 0) + 1;
+            }
+        } catch (Throwable $e) {
+            // Sin tablas todavía: índice vacío.
+        }
+        $idx[$kind] = ['key' => [], 'loose' => [], 'best' => []];
+        foreach ($w as $n => $wt) {
+            name_index_put($idx[$kind], $kind, (string)$n, (int)$wt);
+        }
+    }
+    if ($add !== null && $add !== '') {
+        name_index_put($idx[$kind], $kind, $add, 1);
+    }
+    return $idx[$kind];
+}
+
+/** Suma un nombre (con su peso) al índice. */
+function name_index_put(array &$ix, string $kind, string $name, int $wt): void
+{
+    $k = team_key($name);
+    if ($k === '') {
+        return;
+    }
+    if (!isset($ix['key'][$k])) {
+        $ix['key'][$k] = [$name, $wt, $wt];
+    } else {
+        $ix['key'][$k][1] += $wt;
+        // El nombre que se muestra es el de mayor peso (empate: el orden alfabético).
+        if ($wt > $ix['key'][$k][2] || ($wt === $ix['key'][$k][2] && strcmp($name, $ix['key'][$k][0]) < 0)) {
+            $ix['key'][$k][0] = $name;
+            $ix['key'][$k][2] = $wt;
+        }
+    }
+    if ($kind === 'team') {
+        $lk = team_loose_key($name);
+        if ($lk !== '' && !in_array($k, $ix['loose'][$lk] ?? [], true)) {
+            $ix['loose'][$lk][] = $k;
+        }
+    }
+}
+
+/**
+ * Nombre único de un equipo ($kind = 'team') o de una competición ($kind = 'league'):
+ * 1) alias (de fábrica o del panel); 2) si ya existe con otras mayúsculas / tildes /
+ * guiones, el que ya está; 3) equipos: si solo cambia «1.», «FC», «VfB»…, el que ya está
+ * (se prefiere el que tiene escudo). Si es nuevo, queda como vino.
+ */
+function canonical_name(PDO $pdo, string $kind, string $name): string
+{
+    $name = trim((string)preg_replace('/\s+/u', ' ', $name));
+    $k = team_key($name);
+    if ($name === '' || $k === '') {
+        return $name;
+    }
+    $al = name_aliases($pdo)[$kind] ?? [];
+    for ($i = 0; $i < 4 && isset($al[$k]); $i++) {
+        $name = trim((string)$al[$k]);
+        $k = team_key($name);
+        if ($k === '') {
+            return $name;
+        }
+    }
+    $ix = name_index($pdo, $kind);
+    if (isset($ix['key'][$k])) {
+        return $ix['key'][$k][0];
+    }
+    if ($kind === 'team') {
+        $lk = team_loose_key($name);
+        if ($lk !== '' && !empty($ix['loose'][$lk])) {
+            $best = null;
+            foreach ($ix['loose'][$lk] as $ck) {
+                $c = $ix['key'][$ck];
+                if ($best === null || $c[1] > $best[1]
+                    || ($c[1] === $best[1] && strlen($c[0]) < strlen($best[0]))
+                    || ($c[1] === $best[1] && strlen($c[0]) === strlen($best[0]) && strcmp($c[0], $best[0]) < 0)) {
+                    $best = $c;
+                }
+            }
+            if ($best !== null) {
+                return $best[0];
+            }
+        }
+    }
+    name_index($pdo, $kind, false, $name); // nombre nuevo: sus variantes se unirán a este
+    return $name;
+}
+
+/**
+ * Clave para no duplicar al volver a importar. Con rivales: fecha + local + visitante
+ * (no depende de cómo se escriba la competición); evento de un solo título: fecha + competición + título.
+ */
+function manual_import_key(string $date, string $league, string $home, string $away): string
+{
+    if ($away !== '') {
+        return sha1($date . '|' . team_key($home) . '|' . team_key($away));
+    }
+    return sha1($date . '|' . team_key($league) . '|' . team_key($home));
+}
+
+/**
+ * Limpia lo que ya está guardado: pasa competiciones y equipos a su nombre único,
+ * recalcula la clave de importación y funde los partidos que quedaron repetidos
+ * (conserva el más antiguo y le pasa las señales y favoritos del otro).
+ * Devuelve ['renamed' => n, 'rekeyed' => n, 'merged' => n].
+ */
+function manual_unify_existing(PDO $pdo): array
+{
+    $res = ['renamed' => 0, 'rekeyed' => 0, 'merged' => 0];
+    $tz = new DateTimeZone((string)liveo_config()['timezone']);
+    name_aliases($pdo, true);
+    name_index($pdo, 'team', true);
+    name_index($pdo, 'league', true);
+
+    $rows = $pdo->query('SELECT id, league, home, away, start_ts, import_key FROM manual_events ORDER BY id')->fetchAll();
+    $upd = $pdo->prepare('UPDATE manual_events SET league = ?, home = ?, away = ? WHERE id = ?');
+    $setKey = $pdo->prepare('UPDATE manual_events SET import_key = ? WHERE id = ?');
+    $keep = []; // clave nueva => id que se queda
+    foreach ($rows as $r) {
+        $id = (int)$r['id'];
+        $league = canonical_name($pdo, 'league', (string)$r['league']);
+        $home = (string)$r['home'];
+        $away = (string)$r['away'];
+        if ($away !== '') {
+            $home = canonical_name($pdo, 'team', $home);
+            $away = canonical_name($pdo, 'team', $away);
+        }
+        if ($league !== (string)$r['league'] || $home !== (string)$r['home'] || $away !== (string)$r['away']) {
+            $upd->execute([$league, $home, $away, $id]);
+            $res['renamed']++;
+        }
+        if ($r['import_key'] === null) {
+            continue; // creado a mano: la próxima importación lo reconoce por equipos y fecha
+        }
+        $date = (new DateTimeImmutable('@' . (int)$r['start_ts']))->setTimezone($tz)->format('Y-m-d');
+        $newKey = manual_import_key($date, $league, $home, $away);
+        if (isset($keep[$newKey])) {
+            // Mismo partido cargado dos veces: se funde en el primero.
+            try {
+                $to = 'manual-' . $keep[$newKey];
+                $from = 'manual-' . $id;
+                $pdo->prepare('UPDATE event_sources SET event_id = ? WHERE event_id = ?')->execute([$to, $from]);
+                try {
+                    $pdo->prepare('UPDATE IGNORE favorites SET event_id = ? WHERE event_id = ?')->execute([$to, $from]);
+                    $pdo->prepare('DELETE FROM favorites WHERE event_id = ?')->execute([$from]);
+                } catch (Throwable $e) {
+                    // Sin favoritos: nada que mover.
+                }
+                $pdo->prepare('DELETE FROM manual_events WHERE id = ?')->execute([$id]);
+                $res['merged']++;
+            } catch (Throwable $e) {
+                // Si no se pudo fundir, queda como estaba.
+            }
+            continue;
+        }
+        $keep[$newKey] = $id;
+        if ($newKey !== (string)$r['import_key']) {
+            try {
+                $setKey->execute([$newKey, $id]);
+                $res['rekeyed']++;
+            } catch (Throwable $e) {
+                // Clave ya usada por otro partido: se deja la anterior.
+            }
+        }
+    }
+    return $res;
 }
 
 /** URL base pública de Liveo (http://host/Liveo), sacada de la petición actual. */

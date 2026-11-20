@@ -17,7 +17,7 @@ import 'theme.dart';
 export 'models.dart';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.28';
+const String liveoVersion = '1.0.29';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -717,6 +717,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int tab = 0;
+  bool _navVisible = true;
   final ValueNotifier<int> _refreshHome = ValueNotifier<int>(0);
   final ValueNotifier<int> _refreshAgenda = ValueNotifier<int>(0);
 
@@ -732,6 +733,27 @@ class _HomePageState extends State<HomePage> {
     _refreshHome.dispose();
     _refreshAgenda.dispose();
     super.dispose();
+  }
+
+  /// Oculta la barra inferior al desplazarse hacia abajo y la muestra al subir.
+  bool _onScroll(ScrollNotification n) {
+    if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
+    if (n is ScrollUpdateNotification) {
+      final d = n.scrollDelta ?? 0;
+      final m = n.metrics;
+      if (m.pixels <= 0) {
+        _setNav(true);
+      } else if (d > 1.5 && m.pixels > 24) {
+        _setNav(false);
+      } else if (d < -1.5) {
+        _setNav(true);
+      }
+    }
+    return false;
+  }
+
+  void _setNav(bool v) {
+    if (_navVisible != v) setState(() => _navVisible = v);
   }
 
   void _reload() {
@@ -752,13 +774,14 @@ class _HomePageState extends State<HomePage> {
         title: tab == 0
             ? const Row(
                 children: [
-                  LiveoLogo(size: 26),
-                  SizedBox(width: 10),
+                  LiveoLogo(size: 24),
+                  SizedBox(width: 9),
                   Text(
                     'LIVEO',
                     style: TextStyle(
+                      fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: 2.5,
+                      letterSpacing: 2,
                     ),
                   ),
                 ],
@@ -788,17 +811,31 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(width: 4),
         ],
       ),
-      body: IndexedStack(
-        index: tab,
-        children: [
-          EventsHome(refresh: _refreshHome),
-          AgendaTab(refresh: _refreshAgenda),
-          SettingsPage(dark: widget.dark, onTheme: widget.onTheme),
-        ],
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _onScroll,
+        child: IndexedStack(
+          index: tab,
+          children: [
+            EventsHome(refresh: _refreshHome),
+            AgendaTab(refresh: _refreshAgenda),
+            SettingsPage(dark: widget.dark, onTheme: widget.onTheme),
+          ],
+        ),
       ),
-      bottomNavigationBar: _FloatingNav(
-        index: tab,
-        onChanged: (i) => setState(() => tab = i),
+      bottomNavigationBar: AnimatedSlide(
+        offset: _navVisible ? Offset.zero : const Offset(0, 1.3),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: IgnorePointer(
+          ignoring: !_navVisible,
+          child: _FloatingNav(
+            index: tab,
+            onChanged: (i) => setState(() {
+              tab = i;
+              _navVisible = true;
+            }),
+          ),
+        ),
       ),
     );
   }
@@ -1771,33 +1808,36 @@ class _QuickChip extends StatelessWidget {
     final c = color ?? Pal.accent;
     final border = cs.onSurface.withValues(alpha: 0.18);
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.only(right: 7),
       child: Material(
         color: selected ? c.withValues(alpha: 0.14) : Colors.transparent,
-        shape: StadiumBorder(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
           side: BorderSide(
             color: selected ? c : border,
             width: selected ? 1.4 : 1,
           ),
         ),
         child: InkWell(
-          customBorder: const StadiumBorder(),
+          customBorder: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   selected ? Icons.check_rounded : icon,
-                  size: 17,
+                  size: 15,
                   color: selected || color != null ? c : _muted(context),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   '$label ($count)',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: selected ? c : cs.onSurface,
                   ),
@@ -1846,33 +1886,36 @@ class _SportChip extends StatelessWidget {
     final on = sport != null;
     final border = cs.onSurface.withValues(alpha: 0.18);
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.only(right: 7),
       child: Material(
         color: on ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
-        shape: StadiumBorder(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
           side: BorderSide(
             color: on ? Pal.accent : border,
             width: on ? 1.4 : 1,
           ),
         ),
         child: InkWell(
-          customBorder: const StadiumBorder(),
+          customBorder: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   Icons.tune_rounded,
-                  size: 17,
+                  size: 15,
                   color: on ? Pal.accent : _muted(context),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   sport ?? 'Deporte',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: on ? Pal.accent : cs.onSurface,
                   ),
@@ -1880,7 +1923,7 @@ class _SportChip extends StatelessWidget {
                 const SizedBox(width: 2),
                 Icon(
                   Icons.arrow_drop_down_rounded,
-                  size: 20,
+                  size: 18,
                   color: on ? Pal.accent : _muted(context),
                 ),
               ],
@@ -2335,7 +2378,7 @@ class _EventsHomeState extends State<EventsHome> {
       children: [
         if (_notices.isNotEmpty) _AnnouncementBar(items: _notices),
         SizedBox(
-          height: 54,
+          height: 48,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),

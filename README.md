@@ -9,6 +9,15 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.29
+- **Chips del inicio** (Todos, En vivo, Hoy, Próximos, Deporte): ahora rectangulares y un poco más pequeños.
+- **Título «LIVEO»** de la cabecera con letra más pequeña.
+- **Modo claro en el reproductor:** la página bajo el video (información, opciones y más partidos) respeta el tema; antes seguía negra.
+- **Barra inferior:** se oculta al bajar con scroll y reaparece al subir.
+- **Panel, enlaces del evento:** botones ▲ Subir / ▼ Bajar para decidir el orden de los enlaces (reemplazan el campo numérico «Orden»).
+- Archivos modificados: `app/lib/main.dart`, `app/lib/live_player.dart`, `app/pubspec.yaml`, `backend/admin/index.php`,
+  `backend/src/bootstrap.php`, `README.md`. La carpeta `.github` no cambia.
+
 ## Cambios 1.0.28
 - **Equipos y competiciones sin repetir:** cada equipo y cada competición tiene ahora un único nombre. Al importar un CSV (y al guardar
   un evento a mano) Liveo pasa los nombres al que ya existe: une las variantes con otras tildes o mayúsculas, las que solo cambian
