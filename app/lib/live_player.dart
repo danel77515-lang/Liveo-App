@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_chrome_cast/flutter_chrome_cast.dart'
     show GoogleCastDevice;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -71,11 +70,8 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     NativeBridge.inPip.addListener(_onPip);
     ScreenMode.portrait();
     NativeBridge.keepScreenOn(true);
-    SharedPreferences.getInstance().then((p) {
-      if (mounted) {
-        NativeBridge.setPipReady(p.getBool('pipOnLeave') ?? true);
-      }
-    });
+    // Imagen en imagen siempre activa al salir con un directo abierto.
+    NativeBridge.setPipReady(true);
     if (CastService.ready) {
       _castSub = CastService.connectedStream.listen((connected) {
         if (_casting && !connected && mounted) {

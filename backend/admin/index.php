@@ -100,7 +100,7 @@ function known_team_names(PDO $pdo): array
 function admin_view(): string
 {
     $v = (string)($_GET['v'] ?? 'manual');
-    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues', 'announcements', 'aliases'], true) ? $v : 'manual';
+    return in_array($v, ['event', 'linked', 'manual', 'manual_new', 'config', 'import', 'logos', 'leagues', 'announcements', 'aliases', 'sports'], true) ? $v : 'manual';
 }
 
 function valid_event_id(string $id): bool
@@ -824,6 +824,46 @@ if ($method === 'POST' && !$fatal) {
                 go('v=announcements');
                 break;
 
+            case 'sport_add':
+            case 'sport_icon':
+            case 'sport_delete':
+                $list = sports_catalog_load($pdo);
+                if ($a === 'sport_add') {
+                    $name = trim(preg_replace('/\s+/u', ' ', (string)($_POST['name'] ?? '')));
+                    $icon = sport_valid_icon((string)($_POST['icon'] ?? ''));
+                    if ($name === '' || mb_strlen($name, 'UTF-8') > 80) {
+                        flash('bad', 'Escribe el nombre del deporte (hasta 80 caracteres).');
+                        go('v=sports');
+                    }
+                    $found = false;
+                    foreach ($list as $i => $r) {
+                        if (sport_key($r['name']) === sport_key($name)) {
+                            $list[$i]['icon'] = $icon;
+                            $found = true;
+                        }
+                    }
+                    if (!$found) {
+                        $list[] = ['name' => $name, 'icon' => $icon];
+                    }
+                    flash('ok', $found ? 'Ese deporte ya existía: se actualizó su ícono.' : 'Deporte agregado: ' . $name . '.');
+                } else {
+                    $i = (int)($_POST['i'] ?? -1);
+                    if (!isset($list[$i])) {
+                        flash('bad', 'Ese deporte ya no existe.');
+                        go('v=sports');
+                    }
+                    if ($a === 'sport_icon') {
+                        $list[$i]['icon'] = sport_valid_icon((string)($_POST['icon'] ?? ''));
+                        flash('ok', 'Ícono actualizado: ' . $list[$i]['name'] . '.');
+                    } else {
+                        flash('ok', 'Deporte quitado: ' . $list[$i]['name'] . '.');
+                        array_splice($list, $i, 1);
+                    }
+                }
+                sports_catalog_save($pdo, array_values($list));
+                go('v=sports');
+                break;
+
             case 'aliases_save':
                 $text = str_replace(["\r\n", "\r"], "\n", (string)($_POST['text'] ?? ''));
                 $text = trim(substr($text, 0, 6000));
@@ -1284,6 +1324,73 @@ if ($fatal) {
           </form>
         </div>
         <?php
+    } elseif ($view === 'sports') {
+        // ---- Deportes (nombre + ícono del filtro de la app) ----------------------
+        $catalog = sports_catalog_load($pdo);
+        $icons = sport_icons();
+        $counts = [];
+        $unlisted = [];
+        try {
+            foreach ($pdo->query("SELECT sport, COUNT(*) AS n FROM manual_events WHERE sport <> '' GROUP BY sport")->fetchAll() as $r) {
+                $k = sport_key((string)$r['sport']);
+                $counts[$k] = ($counts[$k] ?? 0) + (int)$r['n'];
+                $unlisted[$k] = (string)$r['sport'];
+            }
+        } catch (Throwable $e) {
+        }
+        foreach ($catalog as $r) {
+            unset($unlisted[sport_key($r['name'])]);
+        }
+        $svg = static function (string $key, int $size = 22) use ($icons): string {
+            $inner = $icons[$key][1] ?? $icons['trophy'][1];
+            return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $inner . '</svg>';
+        };
+        $picker = static function (string $sel, string $name) use ($icons, $svg): string {
+            $o = '<div class="ico-grid">';
+            foreach ($icons as $k => $def) {
+                $o .= '<label title="' . h($def[0]) . '"><input type="radio" name="' . h($name) . '" value="' . h($k) . '"' . ($k === $sel ? ' checked' : '') . '><span>' . $svg($k) . '</span></label>';
+            }
+            return $o . '</div>';
+        };
+        ?>
+        <div class="card" style="margin:0 0 17px">
+          <h2>Deportes (<?= count($catalog) ?>)</h2>
+          <p class="mut">El nombre debe coincidir con el campo «Deporte» de los eventos (no importan mayúsculas ni tildes). Con ese nombre aparece en el filtro de la app, con el ícono que elijas. Un deporte que no esté en esta lista se muestra igual, con el ícono de trofeo.</p>
+          <?php foreach ($catalog as $i => $r): ?>
+            <div class="sport-row">
+              <div class="sport-top">
+                <span class="sport-ico"><?= $svg($r['icon']) ?></span>
+                <div style="flex:1"><b><?= h($r['name']) ?></b><small class="mut" style="display:block;margin-top:3px"><?= (int)($counts[sport_key($r['name'])] ?? 0) ?> eventos</small></div>
+                <form method="post" style="display:inline" onsubmit="return confirm('¿Quitar este deporte de la lista?')">
+                  <?= csrf_field() ?><input type="hidden" name="a" value="sport_delete"><input type="hidden" name="i" value="<?= (int)$i ?>">
+                  <button type="submit" class="danger">Quitar</button>
+                </form>
+              </div>
+              <details>
+                <summary class="alt-btn">Cambiar ícono</summary>
+                <form method="post">
+                  <?= csrf_field() ?><input type="hidden" name="a" value="sport_icon"><input type="hidden" name="i" value="<?= (int)$i ?>">
+                  <?= $picker($r['icon'], 'icon') ?>
+                  <div class="actions"><button type="submit">Guardar ícono</button></div>
+                </form>
+              </details>
+            </div>
+          <?php endforeach; ?>
+        </div>
+
+        <div class="card" style="margin:0 0 17px">
+          <h2>Agregar deporte</h2>
+          <form method="post">
+            <?= csrf_field() ?><input type="hidden" name="a" value="sport_add">
+            <label>Nombre<input name="name" maxlength="80" placeholder="Hockey" required list="sports-unlisted"></label>
+            <datalist id="sports-unlisted"><?php foreach ($unlisted as $u): ?><option value="<?= h($u) ?>"><?php endforeach; ?></datalist>
+            <p class="mut" style="margin:10px 0 6px">Ícono</p>
+            <?= $picker('trophy', 'icon') ?>
+            <div class="actions"><button type="submit">Agregar deporte</button></div>
+          </form>
+          <?php if ($unlisted): ?><p class="mut" style="margin-top:12px">Deportes que ya usan tus eventos y no están en la lista: <?= h(implode(', ', array_values($unlisted))) ?>.</p><?php endif; ?>
+        </div>
+        <?php
     } elseif ($view === 'aliases') {
         // ---- Nombres unificados ----------------------------------------------------
         $mine = (string)(get_setting($pdo, 'name_aliases') ?? '');
@@ -1547,6 +1654,17 @@ $view = admin_view();
   button.danger { background:rgba(255,115,125,.12); color:#ff9aa2; border:1px solid rgba(255,115,125,.3); }
   .mover { display:flex; flex-direction:column; gap:6px; justify-content:flex-end; font-size:12px; }
   button:disabled { opacity:.35; cursor:default; }
+  .sport-row { padding:12px 0; border-top:1px solid rgba(139,164,195,.12); }
+  .sport-top { display:flex; align-items:center; gap:14px; }
+  .sport-ico { width:40px; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--accent); display:grid; place-items:center; flex:none; }
+  .sport-row details { margin-top:10px; }
+  .sport-row summary { cursor:pointer; color:var(--accent); font-size:13px; font-weight:600; }
+  .ico-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(46px,1fr)); gap:8px; margin:12px 0; }
+  .ico-grid label { margin:0; cursor:pointer; position:relative; display:block; }
+  .ico-grid input { position:absolute; opacity:0; width:0; height:0; }
+  .ico-grid span { display:grid; place-items:center; height:46px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:#c6d3e4; }
+  .ico-grid input:checked + span { border:1.5px solid var(--accent); background:rgba(112,223,176,.12); color:var(--accent); }
+  .ico-grid input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
   .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   a.btn { display:inline-block; background:linear-gradient(135deg,var(--accent),#8be7c1); color:#092018; border-radius:10px; padding:10px 15px; font-weight:800; text-decoration:none; font-size:12px; }
   a.btn.alt { background:#263850; color:#e3edf9; border:1px solid #344a66; }
@@ -1583,6 +1701,7 @@ $view = admin_view();
       <a href="?v=logos" class="<?= $view === 'logos' ? 'on' : '' ?>">Escudos</a>
       <a href="?v=leagues" class="<?= $view === 'leagues' ? 'on' : '' ?>">Competiciones</a>
       <a href="?v=aliases" class="<?= $view === 'aliases' ? 'on' : '' ?>">Nombres</a>
+      <a href="?v=sports" class="<?= $view === 'sports' ? 'on' : '' ?>">Deportes</a>
       <a href="?v=linked" class="<?= $view === 'linked' ? 'on' : '' ?>">Con enlaces</a>
       <a href="?v=announcements" class="<?= $view === 'announcements' ? 'on' : '' ?>">Anuncios</a>
       <a href="?v=config" class="<?= $view === 'config' ? 'on' : '' ?>">Configuración</a>

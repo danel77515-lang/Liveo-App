@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 if (!defined('LIVEO_VERSION')) {
-    define('LIVEO_VERSION', '1.0.29');
+    define('LIVEO_VERSION', '1.0.30');
 }
 
 /** Configuración con valores por defecto aptos para XAMPP. */
@@ -163,4 +163,5 @@ function is_local_request(): bool
 
 require_once __DIR__ . '/sources.php';
 require_once __DIR__ . '/manual.php';
+require_once __DIR__ . '/sports_catalog.php';
 require_once __DIR__ . '/importer.php';

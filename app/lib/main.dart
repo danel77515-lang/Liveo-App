@@ -12,16 +12,21 @@ import 'cast_service.dart';
 import 'live_player.dart';
 import 'models.dart';
 import 'native_bridge.dart';
+import 'sport_icons.dart';
 import 'theme.dart';
 
 export 'models.dart';
 
+/// Tipografía del nombre «LIVEO» (cabecera y presentación).
+const String liveoFont = 'Outfit';
+
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.29';
+const String liveoVersion = '1.0.30';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await CastService.init();
+  SportIcons.load();
   runApp(const LiveoApp());
 }
 
@@ -541,8 +546,9 @@ class _SplashScreenState extends State<SplashScreen>
                         child: GradientText(
                           'LIVEO',
                           style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w900,
+                            fontFamily: liveoFont,
+                            fontSize: 36,
+                            fontWeight: FontWeight.w800,
                             letterSpacing: 14 - 10 * word,
                           ),
                         ),
@@ -770,18 +776,20 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       extendBody: true,
       appBar: AppBar(
+        toolbarHeight: 48,
         titleSpacing: 16,
         title: tab == 0
             ? const Row(
                 children: [
-                  LiveoLogo(size: 24),
+                  LiveoLogo(size: 28),
                   SizedBox(width: 9),
                   Text(
                     'LIVEO',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontFamily: liveoFont,
+                      fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: 2,
+                      letterSpacing: 2.5,
                     ),
                   ),
                 ],
@@ -1873,60 +1881,40 @@ List<_SportCount> _sportCounts(List<LiveEvent> list) {
   return out;
 }
 
-/// Chip del filtro de deportes (al final de la fila de chips).
-class _SportChip extends StatelessWidget {
-  const _SportChip({required this.sport, required this.onTap});
+/// Botón de filtro por deporte, a la izquierda de los chips (se enciende
+/// cuando hay un deporte elegido).
+class _SportFilterButton extends StatelessWidget {
+  const _SportFilterButton({required this.active, required this.onTap});
 
-  final String? sport;
+  final bool active;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final on = sport != null;
-    final border = cs.onSurface.withValues(alpha: 0.18);
+    final c = active ? Pal.accent : _muted(context);
     return Padding(
       padding: const EdgeInsets.only(right: 7),
-      child: Material(
-        color: on ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: on ? Pal.accent : border,
-            width: on ? 1.4 : 1,
-          ),
-        ),
-        child: InkWell(
-          customBorder: RoundedRectangleBorder(
+      child: Semantics(
+        button: true,
+        label: 'Filtrar por deporte',
+        child: Material(
+          color: active ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
+            side: BorderSide(
+              color: active ? Pal.accent : cs.onSurface.withValues(alpha: 0.18),
+              width: active ? 1.4 : 1,
+            ),
           ),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.tune_rounded,
-                  size: 15,
-                  color: on ? Pal.accent : _muted(context),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  sport ?? 'Deporte',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: on ? Pal.accent : cs.onSurface,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Icon(
-                  Icons.arrow_drop_down_rounded,
-                  size: 18,
-                  color: on ? Pal.accent : _muted(context),
-                ),
-              ],
+          child: InkWell(
+            customBorder: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            onTap: onTap,
+            child: SizedBox(
+              width: 36,
+              child: Center(child: SvgIcon('list-filter', size: 18, color: c)),
             ),
           ),
         ),
@@ -1935,7 +1923,8 @@ class _SportChip extends StatelessWidget {
   }
 }
 
-/// Hoja con los deportes disponibles (devuelve el nombre, o '' para todos).
+/// Hoja con los deportes disponibles. Devuelve el nombre elegido, o '' si se
+/// toca de nuevo el que ya estaba elegido (quita el filtro).
 class _SportSheet extends StatelessWidget {
   const _SportSheet({required this.sports, required this.selected});
 
@@ -1944,43 +1933,107 @@ class _SportSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = sports.fold<int>(0, (a, s) => a + s.count);
-    Widget tile(String label, int count, String value, bool on) {
-      return ListTile(
-        dense: true,
-        visualDensity: VisualDensity.compact,
-        title: Text(
-          label,
-          style: TextStyle(
-            fontWeight: on ? FontWeight.w700 : FontWeight.w500,
-            color: on ? Pal.accent : null,
+    final cs = Theme.of(context).colorScheme;
+    Widget tile(_SportCount s) {
+      final on = selected == s.name;
+      final key = SportIcons.forSport(s.name);
+      final tint = on ? Pal.accent : cs.onSurface;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Material(
+          color: on
+              ? Pal.accent.withValues(alpha: 0.10)
+              : cs.onSurface.withValues(alpha: 0.05),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: on ? Pal.accent : cs.onSurface.withValues(alpha: 0.08),
+              width: on ? 1.4 : 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => Navigator.of(context).pop(on ? '' : s.name),
+            child: SizedBox(
+              height: 56,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: tint.withValues(alpha: on ? 0.16 : 0.08),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: Center(
+                        child: SvgIcon(key, size: 22, color: on ? Pal.accent : _muted(context)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        s.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: on ? FontWeight.w700 : FontWeight.w600,
+                          color: on ? Pal.accent : null,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${s.count}',
+                      style: TextStyle(
+                        color: _muted(context),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (on) ...[
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                          color: Pal.accent,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          size: 15,
+                          color: Pal.ink,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
-        trailing: Text(
-          '$count',
-          style: TextStyle(color: _muted(context), fontSize: 13),
-        ),
-        leading: Icon(
-          on ? Icons.check_circle_rounded : Icons.circle_outlined,
-          size: 20,
-          color: on ? Pal.accent : _muted(context),
-        ),
-        onTap: () => Navigator.of(context).pop(value),
       );
     }
 
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.6,
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
         ),
         child: ListView(
           shrinkWrap: true,
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           children: [
-            tile('Todos los deportes', total, '', selected == null),
-            for (final s in sports)
-              tile(s.name, s.count, s.name, selected == s.name),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+              child: Text(
+                'Filtrar por deporte',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+            ),
+            for (final s in sports) tile(s),
           ],
         ),
       ),
@@ -2335,10 +2388,11 @@ class _EventsHomeState extends State<EventsHome> {
       context: context,
       showDragHandle: true,
       backgroundColor: _cardColor(context),
+      isScrollControlled: true,
       builder: (ctx) => _SportSheet(sports: sports, selected: _sport),
     );
     if (!mounted || picked == null) return;
-    // '' = «todos los deportes».
+    // '' = se tocó de nuevo el deporte elegido: sin filtro.
     setState(() => _sport = picked.isEmpty ? null : picked);
   }
 
@@ -2378,11 +2432,15 @@ class _EventsHomeState extends State<EventsHome> {
       children: [
         if (_notices.isNotEmpty) _AnnouncementBar(items: _notices),
         SizedBox(
-          height: 48,
+          height: 44,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+            padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
             children: [
+              _SportFilterButton(
+                active: _sport != null,
+                onTap: () => _pickSport(sports),
+              ),
               _QuickChip(
                 label: 'Todos',
                 count: count(_Quick.all),
@@ -2412,7 +2470,6 @@ class _EventsHomeState extends State<EventsHome> {
                 selected: _quick == _Quick.upcoming,
                 onTap: () => setState(() => _quick = _Quick.upcoming),
               ),
-              _SportChip(sport: _sport, onTap: () => _pickSport(sports)),
             ],
           ),
         ),
@@ -2453,7 +2510,7 @@ class _AnnouncementBar extends StatelessWidget {
     final dark = _isDark(context);
     return Container(
       height: 34,
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
       padding: const EdgeInsets.only(left: 10),
       decoration: BoxDecoration(
         color: Pal.accent.withValues(alpha: dark ? 0.08 : 0.12),
@@ -3391,28 +3448,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _pip = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-  }
-
-  Future<void> _loadPrefs() async {
-    final p = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _pip = p.getBool('pipOnLeave') ?? true;
-    });
-  }
-
-  Future<void> _setPip(bool v) async {
-    setState(() => _pip = v);
-    final p = await SharedPreferences.getInstance();
-    await p.setBool('pipOnLeave', v);
-  }
-
   Future<void> _clearData() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -3457,13 +3492,6 @@ class _SettingsPageState extends State<SettingsPage> {
           title: 'Modo oscuro',
           trailing: Switch(value: widget.dark, onChanged: widget.onTheme),
           onTap: () => widget.onTheme(!widget.dark),
-        ),
-        _SettingsCard(
-          icon: Icons.picture_in_picture_alt_outlined,
-          title: 'Imagen en imagen al salir',
-          subtitle: 'Al pulsar inicio con un directo abierto',
-          trailing: Switch(value: _pip, onChanged: _setPip),
-          onTap: () => _setPip(!_pip),
         ),
         const _Label('App'),
         _SettingsCard(

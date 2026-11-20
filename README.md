@@ -9,6 +9,21 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.30
+- **Filtro de deportes nuevo:** sale de la fila de chips y pasa a un botón con ícono de filtro, a la izquierda de «Todos» (se enciende cuando
+  hay un deporte elegido). Abre una hoja moderna con un ícono por deporte y el número de eventos; para quitar el filtro se toca de nuevo
+  el deporte elegido.
+- **Panel → menú nuevo «Deportes»:** agrega deportes y cambia el ícono de cada uno (16 íconos disponibles). El nombre debe coincidir con el
+  campo «Deporte» de los eventos (sin importar mayúsculas ni tildes); un deporte que no esté en la lista usa el ícono de trofeo. Trae una lista
+  de fábrica hasta que guardes la tuya. La app la pide al servidor (`/api/sports`) y, si no responde, usa la de fábrica.
+- **Cabecera más compacta:** menos espacio entre el anuncio, el título y los botones; sin anuncios, los chips suben solos. Logo un poco más
+  grande y la misma tipografía (Outfit ExtraBold) para «LIVEO» en el inicio y en la presentación.
+- **Imagen en imagen:** se quitó de Ajustes; ahora está siempre activa al salir del reproductor con un directo abierto.
+- Dependencias nuevas: `flutter_svg`. Recursos nuevos: `app/assets/sports/` (íconos Tabler, MIT) y `app/assets/fonts/` (Outfit, licencia OFL).
+- Archivos modificados: `app/lib/main.dart`, `app/lib/live_player.dart`, `app/lib/sport_icons.dart` (nuevo), `app/pubspec.yaml`, `app/assets/**` (nuevo),
+  `backend/admin/index.php`, `backend/api/index.php`, `backend/src/bootstrap.php`, `backend/src/sports_catalog.php` (nuevo), `README.md`.
+  No hay que ejecutar ningún SQL. La carpeta `.github` no cambia.
+
 ## Cambios 1.0.29
 - **Chips del inicio** (Todos, En vivo, Hoy, Próximos, Deporte): ahora rectangulares y un poco más pequeños.
 - **Título «LIVEO»** de la cabecera con letra más pequeña.

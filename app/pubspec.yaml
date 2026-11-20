@@ -1,7 +1,7 @@
 name: liveo
 description: Aplicación deportiva Liveo
 publish_to: none
-version: 1.0.29+28
+version: 1.0.30+29
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -14,6 +14,8 @@ dependencies:
   # Fuentes iframe (páginas web embebidas) dentro del reproductor.
   webview_flutter: ^4.10.0
   video_player: ^2.9.2
+  # Íconos de deportes (SVG).
+  flutter_svg: ^2.0.10+1
   # Chromecast (Google Cast). Versión fija: la API cambia entre versiones.
   flutter_chrome_cast: 2.0.0
 
@@ -24,3 +26,11 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sports/
+  fonts:
+    # Outfit (SIL Open Font License, ver assets/fonts/OFL.txt): nombre «LIVEO».
+    - family: Outfit
+      fonts:
+        - asset: assets/fonts/Outfit-ExtraBold.ttf
+          weight: 800
