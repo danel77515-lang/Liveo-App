@@ -9,6 +9,21 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.32
+
+- **Chromecast corregido (app + backend):**
+  - Las señales ahora se transmiten a través de Liveo (`backend/api/cast.php`): el televisor le pide el video a tu PC y la PC se lo pide al servidor original con el Referer / User-Agent guardados en el panel y con CORS. Así se puede enviar cualquier fuente m3u8, no solo las que el Chromecast abría solo.
+  - Espera a que el televisor esté conectado antes de enviar la señal (antes podía fallar o quedar en negro) y reintenta una vez.
+  - Si el evento abierto es una página web (iframe), transmite su primera señal directa; si no tiene ninguna, avisa.
+  - Mientras transmites, elegir otro evento de la lista lo manda al televisor (antes cortaba la transmisión). Al detenerla, el celular retoma el evento que quedó elegido.
+  - Archivos: `app/lib/cast_service.dart`, `app/lib/live_player.dart`, `app/lib/main.dart`, `app/pubspec.yaml` (versión 1.0.32+31) y `backend/api/cast.php` (nuevo).
+
+- **Cruces «A o B»** (por ejemplo «Orlando City o FC Cincinnati»): ya no se tratan como un equipo más.
+  - Al importar un CSV con el cruce definido (Nashville vs FC Cincinnati), el partido guardado con «A o B» se completa solo y conserva sus señales, en lugar de duplicarse.
+  - Si un CSV vuelve a traer el «A o B» de un cruce ya definido, no se vuelve a crear.
+  - En Eventos propios aparece la tarjeta «Cruces por definir» con un botón por equipo (Pasa X) y lo mismo en la ficha del evento.
+- Archivo `liveo_1.0.32_mls.sql`: define los dos cruces de MLS y agrega las revanchas (Cincinnati vs Nashville y Real Salt Lake vs Vancouver).
+
 ## Cambios 1.0.31
 - **Panel → Deportes:** cada deporte puede tener un logo propio (subido desde tu equipo o por URL) que la app muestra en lugar del ícono;
   también puedes editar su nombre (con opción de renombrarlo en los eventos existentes) y quitarlo, borrando el archivo subido.

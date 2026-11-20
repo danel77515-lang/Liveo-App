@@ -21,7 +21,7 @@ export 'models.dart';
 const String liveoFont = 'Outfit';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.31';
+const String liveoVersion = '1.0.32';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1970,8 +1970,6 @@ class _SportSheet extends StatelessWidget {
                         child: SportGlyph(
                           s.name,
                           size: 24,
-                          logoSize: 38,
-                          logoRadius: 11,
                           color: on ? Pal.accent : _muted(context),
                         ),
                       ),

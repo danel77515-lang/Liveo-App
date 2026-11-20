@@ -896,3 +896,176 @@ function announcements_parse(string $text): array
     }
     return $items;
 }
+
+/**
+ * «Orlando City o FC Cincinnati» -> ['Orlando City', 'FC Cincinnati'].
+ * Es un cruce (por ejemplo de playoffs) que depende de quién pase de ronda.
+ * Si el nombre no es un «A o B», devuelve null.
+ */
+function placeholder_candidates(string $name): ?array
+{
+    $parts = preg_split('/\s+o\s+/iu', trim($name));
+    if (!is_array($parts) || count($parts) < 2) {
+        return null;
+    }
+    $out = [];
+    foreach ($parts as $p) {
+        $p = trim((string)$p);
+        if ($p === '') {
+            return null;
+        }
+        $out[] = $p;
+    }
+    return $out;
+}
+
+/** ¿$team es uno de los equipos posibles de un «A o B»? (compara con los nombres únicos de Liveo) */
+function placeholder_has_team(PDO $pdo, string $placeholder, string $team): bool
+{
+    $cands = placeholder_candidates($placeholder);
+    if (!$cands) {
+        return false;
+    }
+    $k = team_key(canonical_name($pdo, 'team', $team));
+    foreach ($cands as $c) {
+        if (team_key(canonical_name($pdo, 'team', $c)) === $k) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** ¿El lado $mine (puede ser «A o B» o un equipo normal) corresponde al lado $other de otro evento? */
+function placeholder_side_matches(PDO $pdo, string $mine, string $other): bool
+{
+    if (placeholder_candidates($mine) !== null) {
+        return placeholder_has_team($pdo, $mine, $other);
+    }
+    if (placeholder_candidates($other) !== null) {
+        return placeholder_has_team($pdo, $other, $mine);
+    }
+    return team_key(canonical_name($pdo, 'team', $mine)) === team_key(canonical_name($pdo, 'team', $other));
+}
+
+/**
+ * Importación de un cruce ya definido (Nashville vs FC Cincinnati): busca un partido guardado
+ * con «A o B» (Nashville vs «Orlando City o FC Cincinnati», ±24 h) para completarlo en lugar de duplicarlo.
+ */
+function manual_find_placeholder_for(PDO $pdo, string $home, string $away, int $start): ?array
+{
+    $st = $pdo->prepare(
+        "SELECT id, time_tbc, start_ts, home, away FROM manual_events
+         WHERE start_ts BETWEEN ? AND ? AND (home LIKE '% o %' OR away LIKE '% o %') ORDER BY id"
+    );
+    $st->execute([$start - 86400, $start + 86400]);
+    foreach ($st->fetchAll() as $r) {
+        $isPh = placeholder_candidates((string)$r['home']) !== null || placeholder_candidates((string)$r['away']) !== null;
+        if ($isPh
+            && placeholder_side_matches($pdo, (string)$r['home'], $home)
+            && placeholder_side_matches($pdo, (string)$r['away'], $away)) {
+            return $r;
+        }
+    }
+    return null;
+}
+
+/**
+ * Al revés: el CSV trae un «A o B» pero ese partido ya se definió y está guardado con su equipo real.
+ * Devuelve ese partido para no volver a crear el «A o B».
+ */
+function manual_find_resolved_for(PDO $pdo, string $home, string $away, int $start): ?array
+{
+    if (placeholder_candidates($home) === null && placeholder_candidates($away) === null) {
+        return null;
+    }
+    $st = $pdo->prepare('SELECT id, time_tbc, start_ts, home, away FROM manual_events WHERE start_ts BETWEEN ? AND ? ORDER BY id');
+    $st->execute([$start - 86400, $start + 86400]);
+    foreach ($st->fetchAll() as $r) {
+        if (placeholder_side_matches($pdo, $home, (string)$r['home'])
+            && placeholder_side_matches($pdo, $away, (string)$r['away'])) {
+            return $r;
+        }
+    }
+    return null;
+}
+
+/**
+ * Resuelve un «A o B»: deja en ese lado al equipo que pasó de ronda.
+ * Conserva señales, favoritos y hora. Si ya existía otro partido igual (cargado por separado), los une.
+ * Devuelve [true|false, mensaje].
+ */
+function manual_resolve_placeholder(PDO $pdo, int $id, string $side, string $winner): array
+{
+    $side = $side === 'home' ? 'home' : 'away';
+    $st = $pdo->prepare('SELECT * FROM manual_events WHERE id = ?');
+    $st->execute([$id]);
+    $r = $st->fetch();
+    if (!$r) {
+        return [false, 'El evento ya no existe.'];
+    }
+    $cands = placeholder_candidates((string)$r[$side]);
+    if (!$cands) {
+        return [false, 'Ese lado del partido ya no tiene un «A o B».'];
+    }
+    $wk = team_key(canonical_name($pdo, 'team', $winner));
+    $name = null;
+    foreach ($cands as $c) {
+        $cn = canonical_name($pdo, 'team', $c);
+        if (team_key($cn) === $wk) {
+            $name = $cn;
+            break;
+        }
+    }
+    if ($name === null) {
+        return [false, 'El equipo elegido no es uno de los posibles de este cruce.'];
+    }
+    $home = $side === 'home' ? $name : (string)$r['home'];
+    $away = $side === 'away' ? $name : (string)$r['away'];
+
+    $newKey = null;
+    if ($r['import_key'] !== null) {
+        $tz = new DateTimeZone((string)liveo_config()['timezone']);
+        $date = (new DateTimeImmutable('@' . (int)$r['start_ts']))->setTimezone($tz)->format('Y-m-d');
+        $newKey = manual_import_key($date, (string)$r['league'], $home, $away);
+    }
+
+    // ¿Ya hay otro partido igual (mismo cruce y fecha)? Se funde en este.
+    $dups = [];
+    $q = $pdo->prepare('SELECT id FROM manual_events WHERE id <> ? AND home = ? AND away = ? AND start_ts BETWEEN ? AND ?');
+    $q->execute([$id, $home, $away, (int)$r['start_ts'] - 86400, (int)$r['start_ts'] + 86400]);
+    foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $d) {
+        $dups[(int)$d] = true;
+    }
+    if ($newKey !== null) {
+        $q = $pdo->prepare('SELECT id FROM manual_events WHERE id <> ? AND import_key = ?');
+        $q->execute([$id, $newKey]);
+        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $d) {
+            $dups[(int)$d] = true;
+        }
+    }
+
+    $merged = 0;
+    try {
+        foreach (array_keys($dups) as $d) {
+            $from = 'manual-' . $d;
+            $to = 'manual-' . $id;
+            $pdo->prepare('UPDATE event_sources SET event_id = ? WHERE event_id = ?')->execute([$to, $from]);
+            try {
+                $pdo->prepare('UPDATE IGNORE favorites SET event_id = ? WHERE event_id = ?')->execute([$to, $from]);
+                $pdo->prepare('DELETE FROM favorites WHERE event_id = ?')->execute([$from]);
+            } catch (Throwable $e) {
+                // Sin favoritos: nada que mover.
+            }
+            $pdo->prepare('DELETE FROM manual_events WHERE id = ?')->execute([$d]);
+            $merged++;
+        }
+        $logoCol = $side === 'home' ? 'home_logo' : 'away_logo';
+        $pdo->prepare('UPDATE manual_events SET home = ?, away = ?, import_key = ?, ' . $logoCol . ' = NULL WHERE id = ?')
+            ->execute([$home, $away, $newKey, $id]);
+        $pdo->prepare('UPDATE event_sources SET home = ?, away = ? WHERE event_id = ?')->execute([$home, $away, 'manual-' . $id]);
+    } catch (Throwable $e) {
+        return [false, 'No se pudo actualizar el cruce: ' . $e->getMessage()];
+    }
+    return [true, 'Cruce definido: ' . $home . ' vs ' . $away . '. Conserva sus señales.'
+        . ($merged > 0 ? ' Se unió con ' . $merged . ' partido(s) repetido(s).' : '')];
+}

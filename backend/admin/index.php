@@ -788,6 +788,13 @@ if ($method === 'POST' && !$fatal) {
                 go('v=logos');
                 break;
 
+            case 'manual_resolve':
+                $mid = (int)($_POST['mid'] ?? 0);
+                $okR = manual_resolve_placeholder($pdo, $mid, (string)($_POST['side'] ?? 'away'), trim((string)($_POST['winner'] ?? '')));
+                flash($okR[0] ? 'ok' : 'bad', $okR[1]);
+                go((string)($_POST['back'] ?? '') === 'list' ? 'v=manual' : 'v=event&id=manual-' . $mid);
+                break;
+
             case 'manual_toggle':
                 $mid = (int)($_POST['mid'] ?? 0);
                 $pdo->prepare('UPDATE manual_events SET active = 1 - active WHERE id = ?')->execute([$mid]);
@@ -1097,6 +1104,36 @@ if ($fatal) {
         </div>
         <?php
         if ($manualRow) {
+            $phSides = [];
+            foreach (['home', 'away'] as $sd) {
+                $cs = placeholder_candidates((string)$manualRow[$sd]);
+                if ($cs) {
+                    $phSides[$sd] = $cs;
+                }
+            }
+            if ($phSides) {
+                ?>
+                <div class="card">
+                  <h2>Cruce por definir</h2>
+                  <p class="mut">Este partido depende de quién pase de ronda. Cuando se sepa, toca al equipo que avanzó: Liveo reemplaza el «o» por su nombre y conserva las señales. También se completa solo si importas un CSV con el cruce ya definido.</p>
+                  <?php foreach ($phSides as $sd => $cs): ?>
+                    <form method="post">
+                      <?= csrf_field() ?>
+                      <input type="hidden" name="a" value="manual_resolve">
+                      <input type="hidden" name="mid" value="<?= (int)$manualRow['id'] ?>">
+                      <input type="hidden" name="side" value="<?= h($sd) ?>">
+                      <div class="actions">
+                        <?php foreach ($cs as $c): ?>
+                          <button type="submit" name="winner" value="<?= h($c) ?>">Pasa <?= h($c) ?></button>
+                        <?php endforeach; ?>
+                      </div>
+                    </form>
+                  <?php endforeach; ?>
+                </div>
+                <?php
+            }
+        }
+        if ($manualRow) {
             $mpre = $_SESSION['manual_prefill'] ?? null;
             unset($_SESSION['manual_prefill']);
             $mv = is_array($mpre) ? $mpre : [
@@ -1330,7 +1367,38 @@ if ($fatal) {
             });
             $rows = array_merge($liveRows, $otherRows);
         }
-        ?>
+        $phq = $pdo->prepare("SELECT * FROM manual_events WHERE (home LIKE '% o %' OR away LIKE '% o %') AND start_ts > ? ORDER BY start_ts, id");
+        $phq->execute([$nowTs - 3 * 86400]);
+        $phRows = [];
+        foreach ($phq->fetchAll() as $pr) {
+            if (placeholder_candidates((string)$pr['home']) !== null || placeholder_candidates((string)$pr['away']) !== null) {
+                $phRows[] = $pr;
+            }
+        }
+        if ($phRows): ?>
+        <div class="card">
+          <h2>Cruces por definir (<?= count($phRows) ?>)</h2>
+          <p class="mut">Toca al equipo que pasó de ronda: Liveo completa el partido y conserva sus señales.</p>
+          <?php foreach ($phRows as $pr): ?>
+            <form method="post" style="margin:10px 0">
+              <?= csrf_field() ?>
+              <input type="hidden" name="a" value="manual_resolve">
+              <input type="hidden" name="mid" value="<?= (int)$pr['id'] ?>">
+              <input type="hidden" name="back" value="list">
+              <p style="margin:0 0 4px"><b><?= h((string)$pr['home']) ?> <span class="mut">vs</span> <?= h((string)$pr['away']) ?></b>
+                <span class="mut"> · <?= h((string)$pr['league']) ?> · <?= h(fmt_ts((int)$pr['start_ts'])) ?></span></p>
+              <div class="actions">
+                <?php foreach (['home', 'away'] as $sd): ?>
+                  <?php foreach ((placeholder_candidates((string)$pr[$sd]) ?? []) as $c): ?>
+                    <button type="submit" name="winner" value="<?= h($c) ?>" onclick="this.form.side.value='<?= $sd ?>'">Pasa <?= h($c) ?></button>
+                  <?php endforeach; ?>
+                <?php endforeach; ?>
+              </div>
+              <input type="hidden" name="side" value="away">
+            </form>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
         <div class="card">
           <form method="get" class="filters">
             <input type="hidden" name="v" value="manual">

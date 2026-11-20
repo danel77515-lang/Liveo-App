@@ -55,6 +55,8 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   Timer? _retryTimer;
 
   bool _casting = false;
+  // true si durante la transmisión se pasó a otro evento: al dejar de transmitir hay que reabrirlo en el celular.
+  bool _castSwitched = false;
   String _castName = '';
   bool _remotePlaying = true;
   StreamSubscription<bool>? _castSub;
@@ -76,7 +78,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       _castSub = CastService.connectedStream.listen((connected) {
         if (_casting && !connected && mounted) {
           setState(() => _casting = false);
-          _vc?.play();
+          _resumeLocal();
         }
       });
     }
@@ -97,6 +99,28 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
       _snack('Este evento todavía no tiene señal.');
       return;
     }
+    final hls = x.links.indexWhere((l) => !l.isIframe);
+    if (_casting && hls >= 0) {
+      // Sigue transmitiendo: el televisor pasa directo al evento elegido.
+      setState(() {
+        _ev = x;
+        _index = hls;
+        _error = null;
+        _web = null;
+        _castSwitched = true;
+        _remotePlaying = true;
+        _related = widget.relatedOf?.call(x) ?? const <LiveEvent>[];
+      });
+      if (_infoScroll.hasClients) _infoScroll.jumpTo(0);
+      _retries = 0;
+      try {
+        await CastService.load(CastService.urlFor(x.links[hls]));
+      } catch (_) {
+        _snack('No se pudo cambiar el evento en el Chromecast.');
+      }
+      return;
+    }
+    _castSwitched = false;
     if (_casting) {
       await CastService.stop();
     }
@@ -351,6 +375,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     if (_casting && _links[i].isIframe) {
       await CastService.stop();
       if (!mounted) return;
+      _castSwitched = false;
       setState(() => _casting = false);
       _retries = 0;
       await _open(i);
@@ -359,7 +384,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     if (_casting) {
       setState(() => _index = i);
       try {
-        await CastService.load(_links[i].url);
+        await CastService.load(CastService.urlFor(_links[i]));
       } catch (_) {
         _snack('No se pudo cambiar la fuente en el Chromecast.');
       }
@@ -518,17 +543,32 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
   }
 
   Future<void> _startCast(GoogleCastDevice d) async {
-    final src = _src;
-    if (src.needsHeaders) {
+    // Una página web (iframe) no se puede transmitir: se usa la primera señal directa del evento.
+    var i = _index;
+    if (_links[i].isIframe) {
+      i = _links.indexWhere((l) => !l.isIframe);
+      if (i < 0) {
+        _snack(
+          'Este evento solo tiene señales web (iframe) y no se pueden transmitir.',
+        );
+        return;
+      }
+    }
+    final src = _links[i];
+    if (src.needsHeaders && !CastService.usesProxy(src)) {
       _snack(
         'Esta fuente usa Referer o User-Agent; el Chromecast podría no poder reproducirla.',
       );
+    } else {
+      _snack('Conectando con ${d.friendlyName}…');
     }
     try {
-      await CastService.start(d, src.url);
+      await CastService.start(d, CastService.urlFor(src));
       await _vc?.pause();
       if (!mounted) return;
       setState(() {
+        _index = i;
+        _castSwitched = false;
         _casting = true;
         _castName = d.friendlyName;
         _remotePlaying = true;
@@ -543,6 +583,17 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     await CastService.stop();
     if (!mounted) return;
     setState(() => _casting = false);
+    await _resumeLocal();
+  }
+
+  /// Vuelve a reproducir en el celular al dejar de transmitir.
+  Future<void> _resumeLocal() async {
+    if (_castSwitched) {
+      _castSwitched = false;
+      _retries = 0;
+      await _open(_index);
+      return;
+    }
     await _vc?.play();
   }
 

@@ -313,6 +313,22 @@ function manual_import_rows(PDO $pdo, array $rows, bool $skipInfo = true): array
                 $cur = $pair->fetch();
                 $adopt = (bool)$cur;
             }
+            if (!$cur && $away !== '') {
+                if (placeholder_candidates($home) !== null || placeholder_candidates($away) !== null) {
+                    // «A o B» de un cruce que ya se definió y está cargado con su equipo real: no se vuelve a crear.
+                    if (manual_find_resolved_for($pdo, $home, $away, $start) !== null) {
+                        $res['skipped']++;
+                        continue;
+                    }
+                } else {
+                    // Cruce ya definido: completa el partido guardado como «A o B» (conserva sus señales).
+                    $ph = manual_find_placeholder_for($pdo, $home, $away, $start);
+                    if ($ph !== null) {
+                        $cur = $ph;
+                        $adopt = true;
+                    }
+                }
+            }
             if ($cur) {
                 // Una hora ya confirmada no se pierde si el CSV todavía no la trae.
                 if ($tbc === 1 && (int)$cur['time_tbc'] === 0) {
