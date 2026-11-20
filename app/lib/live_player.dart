@@ -780,7 +780,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
           SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, c) {
-              gap = 6.0;
+              const gap = 6.0;
               // 2 columnas hasta 4 fuentes; con más, 3 para que no crezca.
               final cols = _links.length <= 4 ? 2 : 3;
               final w = (c.maxWidth - gap * (cols - 1)) / cols;
