@@ -9,6 +9,10 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.31
+- **Panel → Deportes:** cada deporte puede tener un logo propio (subido desde tu equipo o por URL) que la app muestra en lugar del ícono;
+  también puedes editar su nombre (con opción de renombrarlo en los eventos existentes) y quitarlo, borrando el archivo subido.
+
 ## Cambios 1.0.30
 - **Filtro de deportes nuevo:** sale de la fila de chips y pasa a un botón con ícono de filtro, a la izquierda de «Todos» (se enciende cuando
   hay un deporte elegido). Abre una hoja moderna con un ícono por deporte y el número de eventos; para quitar el filtro se toca de nuevo

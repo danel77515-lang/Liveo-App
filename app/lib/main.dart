@@ -21,7 +21,7 @@ export 'models.dart';
 const String liveoFont = 'Outfit';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.30';
+const String liveoVersion = '1.0.31';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
