@@ -1936,7 +1936,6 @@ class _SportSheet extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     Widget tile(_SportCount s) {
       final on = selected == s.name;
-      final key = SportIcons.forSport(s.name);
       final tint = on ? Pal.accent : cs.onSurface;
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
@@ -1968,7 +1967,11 @@ class _SportSheet extends StatelessWidget {
                         borderRadius: BorderRadius.circular(11),
                       ),
                       child: Center(
-                        child: SvgIcon(key, size: 22, color: on ? Pal.accent : _muted(context)),
+                        child: SportGlyph(
+                          s.name,
+                          size: 24,
+                          color: on ? Pal.accent : _muted(context),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),

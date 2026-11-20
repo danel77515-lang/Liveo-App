@@ -825,39 +825,114 @@ if ($method === 'POST' && !$fatal) {
                 break;
 
             case 'sport_add':
-            case 'sport_icon':
+            case 'sport_edit':
             case 'sport_delete':
                 $list = sports_catalog_load($pdo);
+                $normName = static fn (string $n): string => trim((string)preg_replace('/\s+/u', ' ', $n));
+                // Resuelve el logo del formulario: archivo subido > URL > quitar > dejar como estaba.
+                $resolveLogo = static function (string $current, string $sportName) use (&$list): ?string {
+                    $up = $_FILES['logo_file'] ?? null;
+                    if (is_array($up) && (int)($up['error'] ?? 4) !== UPLOAD_ERR_NO_FILE) {
+                        $r = save_sport_logo_upload($sportName, $up);
+                        if (!$r['ok']) {
+                            flash('bad', $r['error']);
+                            return null;
+                        }
+                        return $r['logo'];
+                    }
+                    $url = trim((string)($_POST['logo_url'] ?? ''));
+                    if ($url !== '') {
+                        if (sport_valid_logo($url) === '' || strncmp($url, 'uploads/', 8) === 0) {
+                            flash('bad', 'La URL del logo debe empezar con http:// o https://');
+                            return null;
+                        }
+                        return $url;
+                    }
+                    if (!empty($_POST['logo_remove'])) {
+                        return '';
+                    }
+                    return $current;
+                };
+
                 if ($a === 'sport_add') {
-                    $name = trim(preg_replace('/\s+/u', ' ', (string)($_POST['name'] ?? '')));
+                    $name = $normName((string)($_POST['name'] ?? ''));
                     $icon = sport_valid_icon((string)($_POST['icon'] ?? ''));
                     if ($name === '' || mb_strlen($name, 'UTF-8') > 80) {
                         flash('bad', 'Escribe el nombre del deporte (hasta 80 caracteres).');
                         go('v=sports');
                     }
-                    $found = false;
+                    $idx = null;
                     foreach ($list as $i => $r) {
                         if (sport_key($r['name']) === sport_key($name)) {
-                            $list[$i]['icon'] = $icon;
-                            $found = true;
+                            $idx = $i;
                         }
                     }
-                    if (!$found) {
-                        $list[] = ['name' => $name, 'icon' => $icon];
+                    $current = $idx !== null ? (string)$list[$idx]['logo'] : '';
+                    $logo = $resolveLogo($current, $name);
+                    if ($logo === null) {
+                        go('v=sports');
                     }
-                    flash('ok', $found ? 'Ese deporte ya existía: se actualizó su ícono.' : 'Deporte agregado: ' . $name . '.');
+                    if ($idx !== null) {
+                        $list[$idx]['icon'] = $icon;
+                        $list[$idx]['logo'] = $logo;
+                        flash('ok', 'Ese deporte ya existía: se actualizó.');
+                    } else {
+                        $list[] = ['name' => $name, 'icon' => $icon, 'logo' => $logo];
+                        flash('ok', 'Deporte agregado: ' . $name . '.');
+                    }
+                    if ($current !== '' && $current !== $logo) {
+                        $tmp = $list;
+                        sport_logo_delete_file($current, $tmp);
+                    }
                 } else {
                     $i = (int)($_POST['i'] ?? -1);
                     if (!isset($list[$i])) {
                         flash('bad', 'Ese deporte ya no existe.');
                         go('v=sports');
                     }
-                    if ($a === 'sport_icon') {
-                        $list[$i]['icon'] = sport_valid_icon((string)($_POST['icon'] ?? ''));
-                        flash('ok', 'Ícono actualizado: ' . $list[$i]['name'] . '.');
+                    if ($a === 'sport_edit') {
+                        $old = $list[$i];
+                        $name = $normName((string)($_POST['name'] ?? ''));
+                        if ($name === '' || mb_strlen($name, 'UTF-8') > 80) {
+                            flash('bad', 'Escribe el nombre del deporte (hasta 80 caracteres).');
+                            go('v=sports');
+                        }
+                        foreach ($list as $j => $r) {
+                            if ($j !== $i && sport_key($r['name']) === sport_key($name)) {
+                                flash('bad', 'Ya existe otro deporte con ese nombre: ' . $r['name'] . '.');
+                                go('v=sports');
+                            }
+                        }
+                        $logo = $resolveLogo((string)$old['logo'], $name);
+                        if ($logo === null) {
+                            go('v=sports');
+                        }
+                        $list[$i] = ['name' => $name, 'icon' => sport_valid_icon((string)($_POST['icon'] ?? $old['icon'])), 'logo' => $logo];
+                        if ($old['logo'] !== '' && $old['logo'] !== $logo) {
+                            sport_logo_delete_file((string)$old['logo'], $list);
+                        }
+                        // Renombrar también en los eventos, para que sigan apareciendo bajo este deporte.
+                        $moved = 0;
+                        if (sport_key($old['name']) !== sport_key($name) || $old['name'] !== $name) {
+                            if (!empty($_POST['rename_events'])) {
+                                try {
+                                    $st = $pdo->prepare('UPDATE manual_events SET sport = ? WHERE sport = ?');
+                                    foreach ($pdo->query("SELECT DISTINCT sport FROM manual_events WHERE sport <> ''")->fetchAll(PDO::FETCH_COLUMN) as $sp) {
+                                        if (sport_key((string)$sp) === sport_key((string)$old['name'])) {
+                                            $st->execute([$name, $sp]);
+                                            $moved += $st->rowCount();
+                                        }
+                                    }
+                                } catch (Throwable $e) {
+                                }
+                            }
+                        }
+                        flash('ok', 'Deporte actualizado: ' . $name . ($moved > 0 ? ' (' . $moved . ' eventos renombrados).' : '.'));
                     } else {
                         flash('ok', 'Deporte quitado: ' . $list[$i]['name'] . '.');
+                        $gone = $list[$i];
                         array_splice($list, $i, 1);
+                        sport_logo_delete_file((string)$gone['logo'], $list);
                     }
                 }
                 sports_catalog_save($pdo, array_values($list));
@@ -1352,26 +1427,43 @@ if ($fatal) {
             }
             return $o . '</div>';
         };
+        $logoSrc = static fn (string $l): string => strncmp($l, 'uploads/', 8) === 0 ? '../' . $l : $l;
+        $glyph = static function (array $r) use ($svg, $logoSrc): string {
+            if ($r['logo'] !== '') {
+                return '<img src="' . h($logoSrc($r['logo'])) . '" alt="" width="30" height="30" style="object-fit:contain" referrerpolicy="no-referrer">';
+            }
+            return $svg($r['icon']);
+        };
         ?>
         <div class="card" style="margin:0 0 17px">
           <h2>Deportes (<?= count($catalog) ?>)</h2>
-          <p class="mut">El nombre debe coincidir con el campo «Deporte» de los eventos (no importan mayúsculas ni tildes). Con ese nombre aparece en el filtro de la app, con el ícono que elijas. Un deporte que no esté en esta lista se muestra igual, con el ícono de trofeo.</p>
+          <p class="mut">El nombre debe coincidir con el campo «Deporte» de los eventos (no importan mayúsculas ni tildes). En la app aparece con tu logo (si subiste uno) o con el ícono que elijas. Un deporte que no esté en esta lista se muestra igual, con el ícono de trofeo.</p>
           <?php foreach ($catalog as $i => $r): ?>
             <div class="sport-row">
               <div class="sport-top">
-                <span class="sport-ico"><?= $svg($r['icon']) ?></span>
-                <div style="flex:1"><b><?= h($r['name']) ?></b><small class="mut" style="display:block;margin-top:3px"><?= (int)($counts[sport_key($r['name'])] ?? 0) ?> eventos</small></div>
+                <span class="sport-ico"><?= $glyph($r) ?></span>
+                <div style="flex:1"><b><?= h($r['name']) ?></b><small class="mut" style="display:block;margin-top:3px"><?= (int)($counts[sport_key($r['name'])] ?? 0) ?> eventos<?= $r['logo'] !== '' ? ' · logo propio' : '' ?></small></div>
                 <form method="post" style="display:inline" onsubmit="return confirm('¿Quitar este deporte de la lista?')">
                   <?= csrf_field() ?><input type="hidden" name="a" value="sport_delete"><input type="hidden" name="i" value="<?= (int)$i ?>">
                   <button type="submit" class="danger">Quitar</button>
                 </form>
               </div>
               <details>
-                <summary class="alt-btn">Cambiar ícono</summary>
-                <form method="post">
-                  <?= csrf_field() ?><input type="hidden" name="a" value="sport_icon"><input type="hidden" name="i" value="<?= (int)$i ?>">
+                <summary class="alt-btn">Editar nombre, logo o ícono</summary>
+                <form method="post" enctype="multipart/form-data">
+                  <?= csrf_field() ?><input type="hidden" name="a" value="sport_edit"><input type="hidden" name="i" value="<?= (int)$i ?>">
+                  <label>Nombre<input name="name" maxlength="80" value="<?= h($r['name']) ?>" required></label>
+                  <label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" name="rename_events" value="1" checked style="width:auto"> Renombrar también en los eventos que ya lo usan</label>
+                  <p class="mut" style="margin:10px 0 6px">Logo propio <small>(opcional; reemplaza al ícono en la app)</small></p>
+                  <?php if ($r['logo'] !== ''): ?>
+                    <p style="margin:0 0 8px"><img src="<?= h($logoSrc($r['logo'])) ?>" alt="" width="48" height="48" style="object-fit:contain;vertical-align:middle;background:var(--panel2);border-radius:10px;padding:4px" referrerpolicy="no-referrer">
+                    <label style="display:inline-flex;gap:6px;align-items:center;margin-left:10px"><input type="checkbox" name="logo_remove" value="1" style="width:auto"> Quitar logo</label></p>
+                  <?php endif; ?>
+                  <label>Subir imagen<input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+                  <label>…o pegar una URL<input name="logo_url" maxlength="490" placeholder="https://…/logo.png"></label>
+                  <p class="mut" style="margin:10px 0 6px">Ícono <small>(se usa si no hay logo)</small></p>
                   <?= $picker($r['icon'], 'icon') ?>
-                  <div class="actions"><button type="submit">Guardar ícono</button></div>
+                  <div class="actions"><button type="submit">Guardar cambios</button></div>
                 </form>
               </details>
             </div>
@@ -1380,11 +1472,14 @@ if ($fatal) {
 
         <div class="card" style="margin:0 0 17px">
           <h2>Agregar deporte</h2>
-          <form method="post">
+          <form method="post" enctype="multipart/form-data">
             <?= csrf_field() ?><input type="hidden" name="a" value="sport_add">
             <label>Nombre<input name="name" maxlength="80" placeholder="Hockey" required list="sports-unlisted"></label>
             <datalist id="sports-unlisted"><?php foreach ($unlisted as $u): ?><option value="<?= h($u) ?>"><?php endforeach; ?></datalist>
-            <p class="mut" style="margin:10px 0 6px">Ícono</p>
+            <p class="mut" style="margin:10px 0 6px">Logo propio <small>(opcional)</small></p>
+            <label>Subir imagen<input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+            <label>…o pegar una URL<input name="logo_url" maxlength="490" placeholder="https://…/logo.png"></label>
+            <p class="mut" style="margin:10px 0 6px">Ícono <small>(se usa si no hay logo)</small></p>
             <?= $picker('trophy', 'icon') ?>
             <div class="actions"><button type="submit">Agregar deporte</button></div>
           </form>

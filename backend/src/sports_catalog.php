@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 /**
  * Catálogo de deportes (nombre + ícono) que ve la app en el filtro del inicio.
- * Se guarda en app_settings (clave sports_catalog) como JSON: [{"name","icon"}].
+ * Se guarda en app_settings (clave sports_catalog) como JSON: [{"name","icon","logo"}].
+ * «logo» es opcional: una URL http(s) o una imagen subida (uploads/logos/…); si existe,
+ * la app la muestra en lugar del ícono.
  * Los íconos son Tabler Icons (MIT); la app trae los mismos archivos SVG.
  */
 
@@ -33,7 +35,10 @@ function sport_icons(): array
 /** Deportes de fábrica (hasta que el panel guarde su propia lista). */
 function sports_default_catalog(): array
 {
-    return [
+    return array_map(static function (array $r): array {
+        $r['logo'] = '';
+        return $r;
+    }, [
         ['name' => 'Fútbol', 'icon' => 'ball-football'],
         ['name' => 'Básquet', 'icon' => 'ball-basketball'],
         ['name' => 'Tenis', 'icon' => 'ball-tennis'],
@@ -47,7 +52,7 @@ function sports_default_catalog(): array
         ['name' => 'Golf', 'icon' => 'golf'],
         ['name' => 'Boxeo', 'icon' => 'karate'],
         ['name' => 'MMA', 'icon' => 'karate'],
-    ];
+    ]);
 }
 
 /** Clave de comparación: minúsculas y sin tildes. */
@@ -64,6 +69,59 @@ function sport_key(string $name): string
 function sport_valid_icon(string $icon): string
 {
     return array_key_exists($icon, sport_icons()) ? $icon : 'trophy';
+}
+
+/** Logo válido: URL http(s) o imagen ya subida (uploads/logos/…). Si no, ''. */
+function sport_valid_logo(string $v): string
+{
+    $v = trim($v);
+    if (preg_match('#^https?://\S{4,490}$#i', $v) === 1) {
+        return $v;
+    }
+    return preg_match('#^uploads/logos/[a-z0-9-]+\.(png|jpg|webp|gif)$#', $v) === 1 ? $v : '';
+}
+
+/**
+ * Guarda una imagen subida como logo de un deporte (uploads/logos/sport-…).
+ * Devuelve ['ok' => bool, 'logo' => 'uploads/logos/…', 'error' => string].
+ */
+function save_sport_logo_upload(string $sportName, array $file): array
+{
+    if ((int)($file['error'] ?? 4) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$file['tmp_name'])) {
+        return ['ok' => false, 'logo' => '', 'error' => 'No se pudo recibir el archivo (revisa el límite de subida de PHP).'];
+    }
+    if ((int)$file['size'] > 1536 * 1024) {
+        return ['ok' => false, 'logo' => '', 'error' => 'La imagen supera 1,5 MB.'];
+    }
+    $info = @getimagesize((string)$file['tmp_name']);
+    $ext = [IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'][$info[2] ?? 0] ?? null;
+    if ($ext === null) {
+        return ['ok' => false, 'logo' => '', 'error' => 'Solo se aceptan imágenes PNG, JPG, WEBP o GIF.'];
+    }
+    $dir = logo_dir();
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+        return ['ok' => false, 'logo' => '', 'error' => 'No se pudo crear la carpeta uploads/logos.'];
+    }
+    $slug = trim((string)preg_replace('/[^a-z0-9]+/', '-', sport_key($sportName)), '-');
+    $name = 'sport-' . ($slug !== '' ? $slug : 'x') . '-' . substr((string)sha1_file((string)$file['tmp_name']), 0, 8) . '.' . $ext;
+    if (!@move_uploaded_file((string)$file['tmp_name'], $dir . '/' . $name)) {
+        return ['ok' => false, 'logo' => '', 'error' => 'No se pudo guardar la imagen en uploads/logos.'];
+    }
+    return ['ok' => true, 'logo' => 'uploads/logos/' . $name, 'error' => ''];
+}
+
+/** Borra el archivo de un logo subido (las URL externas no se tocan). */
+function sport_logo_delete_file(string $logo, array $keepInList = []): void
+{
+    if (strncmp($logo, 'uploads/logos/', 14) !== 0) {
+        return;
+    }
+    foreach ($keepInList as $r) {
+        if (($r['logo'] ?? '') === $logo) {
+            return; // otro deporte lo sigue usando
+        }
+    }
+    @unlink(logo_dir() . '/' . basename($logo));
 }
 
 /** Lista guardada en el panel (o la de fábrica si todavía no se guardó ninguna). */
@@ -89,7 +147,11 @@ function sports_catalog_load(?PDO $pdo = null): array
         $out = [];
         foreach ($data as $r) {
             if (is_array($r) && trim((string)($r['name'] ?? '')) !== '') {
-                $out[] = ['name' => substr(trim((string)$r['name']), 0, 80), 'icon' => sport_valid_icon((string)($r['icon'] ?? ''))];
+                $out[] = [
+                    'name' => substr(trim((string)$r['name']), 0, 80),
+                    'icon' => sport_valid_icon((string)($r['icon'] ?? '')),
+                    'logo' => sport_valid_logo((string)($r['logo'] ?? '')),
+                ];
             }
         }
         return $out;
@@ -102,8 +164,23 @@ function sports_catalog_save(PDO $pdo, array $list): void
 {
     $clean = [];
     foreach ($list as $r) {
-        $clean[] = ['name' => (string)$r['name'], 'icon' => sport_valid_icon((string)$r['icon'])];
+        $clean[] = [
+            'name' => (string)$r['name'],
+            'icon' => sport_valid_icon((string)$r['icon']),
+            'logo' => sport_valid_logo((string)($r['logo'] ?? '')),
+        ];
     }
     $pdo->prepare('REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)')
         ->execute(['sports_catalog', json_encode($clean, JSON_UNESCAPED_UNICODE)]);
+}
+
+/** Catálogo listo para la API: el logo subido pasa a URL absoluta. */
+function sports_catalog_public(?PDO $pdo = null): array
+{
+    $out = [];
+    foreach (sports_catalog_load($pdo) as $r) {
+        $r['logo'] = $r['logo'] !== '' ? logo_public_url($r['logo']) : '';
+        $out[] = $r;
+    }
+    return $out;
 }

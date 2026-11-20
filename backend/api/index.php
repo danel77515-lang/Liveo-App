@@ -71,7 +71,7 @@ try {
     // ---- Deportes (nombre + ícono para el filtro del inicio) -----------
     if ($path === 'sports') {
         require_method($method, ['GET']);
-        respond(['success' => true, 'items' => sports_catalog_load()]);
+        respond(['success' => true, 'items' => sports_catalog_public()]);
     }
 
     // ---- Agenda --------------------------------------------------------

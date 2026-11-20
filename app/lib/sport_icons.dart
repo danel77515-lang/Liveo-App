@@ -54,6 +54,9 @@ class SportIcons {
 
   static Map<String, String> _map = Map<String, String>.of(_defaults);
 
+  /// Logos propios (URL) subidos desde el panel; tienen prioridad sobre el ícono.
+  static Map<String, String> _logos = <String, String>{};
+
   static const String _from = 'áàäâéèëêíìïîóòöôúùüûñ';
   static const String _to = 'aaaaeeeeiiiioooouuuun';
 
@@ -70,6 +73,12 @@ class SportIcons {
   /// Clave del ícono (archivo SVG) de un deporte.
   static String forSport(String name) => _map[keyOf(name)] ?? fallback;
 
+  /// URL del logo propio de un deporte, o null si usa el ícono.
+  static String? logoFor(String name) {
+    final u = _logos[keyOf(name)];
+    return (u == null || u.isEmpty) ? null : u;
+  }
+
   /// Pide la lista al servidor. Nunca lanza: ante un error deja la actual.
   static Future<void> load() async {
     try {
@@ -83,14 +92,20 @@ class SportIcons {
       final data = jsonDecode(utf8.decode(r.bodyBytes));
       if (data is! Map || data['items'] is! List) return;
       final next = <String, String>{};
+      final logos = <String, String>{};
       for (final e in data['items'] as List) {
         if (e is! Map) continue;
         final name = '${e['name'] ?? ''}'.trim();
         final icon = '${e['icon'] ?? ''}'.trim();
         if (name.isEmpty) continue;
         next[keyOf(name)] = _available.contains(icon) ? icon : fallback;
+        final logo = '${e['logo'] ?? ''}'.trim();
+        if (logo.startsWith('http://') || logo.startsWith('https://')) {
+          logos[keyOf(name)] = logo;
+        }
       }
       _map = next;
+      _logos = logos;
       version.value++;
     } catch (_) {
       // Servidor antiguo o sin conexión: se mantienen los íconos de fábrica.
@@ -114,6 +129,29 @@ class SvgIcon extends StatelessWidget {
       width: size,
       height: size,
       colorFilter: ColorFilter.mode(c, BlendMode.srcIn),
+    );
+  }
+}
+
+/// Ícono de un deporte: su logo propio si el panel tiene uno, o el SVG elegido.
+class SportGlyph extends StatelessWidget {
+  const SportGlyph(this.sport, {super.key, this.size = 22, this.color});
+
+  final String sport;
+  final double size;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final svg = SvgIcon(SportIcons.forSport(sport), size: size, color: color);
+    final logo = SportIcons.logoFor(sport);
+    if (logo == null) return svg;
+    return Image.network(
+      logo,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) => svg,
     );
   }
 }
