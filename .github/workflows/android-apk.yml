@@ -51,11 +51,6 @@ jobs:
           # --- Reproductor integrado: PiP + Chromecast
           if 'supportsPictureInPicture' not in s:
               s = s.replace('<activity', '<activity\n            android:supportsPictureInPicture=\"true\"', 1)
-          # Permisos de red que Cast necesita para encontrar el Chromecast (mDNS) en la red local.
-          for perm in ('android.permission.ACCESS_NETWORK_STATE', 'android.permission.ACCESS_WIFI_STATE',
-                       'android.permission.CHANGE_WIFI_MULTICAST_STATE'):
-              if perm not in s:
-                  s = s.replace('<application', '<uses-permission android:name=\"' + perm + '\"/>\n    <application', 1)
           for perm in ('android.permission.FOREGROUND_SERVICE', 'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK'):
               if perm not in s:
                   s = s.replace('<application', '<uses-permission android:name=\"' + perm + '\"/>\n    <application', 1)
@@ -128,26 +123,6 @@ jobs:
           assert done, 'No se encontró android/app/build.gradle(.kts)'
           PY
 
-      - name: Fijar targetSdk 36 (Android 17 bloquea la red local a las apps con target 37)
-        run: |
-          python3 - <<'PY'
-          import pathlib, re
-          done = False
-          for name in ('build.gradle.kts', 'build.gradle'):
-              f = pathlib.Path('android/app') / name
-              if not f.is_file():
-                  continue
-              s = f.read_text(encoding='utf-8')
-              repl = 'targetSdk = 36' if name.endswith('.kts') else 'targetSdkVersion 36'
-              s2, n = re.subn(r'^(\s*)targetSdk(?:Version)?\b[^\n]*$', lambda m: m.group(1) + repl, s, count=1, flags=re.M)
-              if n == 1:
-                  f.write_text(s2, encoding='utf-8')
-                  print(name, '-> targetSdk 36')
-              else:
-                  print('AVISO: no se encontró targetSdk en', name)
-              done = True
-          PY
-
       - name: Install dependencies
         run: flutter pub get
 
@@ -213,8 +188,11 @@ jobs:
           }
           EOF
 
+      # Solo arm64-v8a (todos los celulares Android desde ~2017). Sin esto Flutter empaqueta
+      # el motor para arm, arm64 y x86_64 y el APK pesa ~55 MB; con arm64 queda en ~20-25 MB.
+      # La ruta de salida sigue siendo app-release.apk.
       - name: Build release APK
-        run: flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL"
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=API_BASE_URL="$API_BASE_URL"
 
       # El APK se publica en una Release (no cuenta en el cupo de artefactos de Actions).
       - name: Publish APK in a Release
