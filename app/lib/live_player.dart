@@ -28,7 +28,7 @@ class LivePlayerPage extends StatefulWidget {
   /// Partidos relacionados (misma competición) que se muestran debajo del video.
   final List<LiveEvent> Function(LiveEvent event)? relatedOf;
 
-  /// Fuente con la que arranca (la elegida en la ventana de opciones).
+  /// Fuente con la que arranca (por defecto la primera).
   final int initialIndex;
 
   @override
@@ -780,7 +780,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
             ],
           ),
           if (_links.length > 1) ...[
-            SizedBox(height: 18),
+            SizedBox(height: 14),
             _optionsBox(),
           ],
           if (_related.isNotEmpty) ...[
@@ -792,102 +792,104 @@ class _LivePlayerPageState extends State<LivePlayerPage> {
     );
   }
 
-  /// Caja con las fuentes del evento: una ficha compacta por opción.
+  /// Señales del evento en una sola línea: ícono + fichas (píldoras) que se
+  /// deslizan de lado. La activa lleva el degradado y borde de la app.
   Widget _optionsBox() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(10, 8, 10, 10),
-      decoration: BoxDecoration(
-        color: _boxColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return SizedBox(
+      height: 40,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(Icons.tune_rounded, size: 14, color: _fg54),
-              SizedBox(width: 5),
-              Text(
-                'OPCIONES',
-                style: TextStyle(
-                  color: _fg54,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1,
-                ),
-              ),
-              Spacer(),
-              Text(
-                '${_links.length} fuentes',
-                style: TextStyle(color: _fg38, fontSize: 10.5),
-              ),
-            ],
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Pal.accent.withValues(alpha: 0.14),
+              border: Border.all(color: Pal.accent.withValues(alpha: 0.4)),
+            ),
+            child: const Icon(
+              Icons.sensors_rounded,
+              size: 18,
+              color: Pal.accent,
+            ),
           ),
-          SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, c) {
-              const gap = 6.0;
-              // 2 columnas hasta 4 fuentes; con más, 3 para que no crezca.
-              final cols = _links.length <= 4 ? 2 : 3;
-              final w = (c.maxWidth - gap * (cols - 1)) / cols;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (var i = 0; i < _links.length; i++)
-                    SizedBox(width: w, child: _optionTile(i)),
-                ],
-              );
-            },
+          const SizedBox(width: 10),
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _links.length,
+              separatorBuilder: (context, i) => const SizedBox(width: 6),
+              itemBuilder: (context, i) => Center(child: _optionTile(i)),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// Ficha de una sola línea: ícono + nombre (+ tilde si es la activa).
-  /// Directo / Web se distingue por el ícono; «reproduciendo» por el color.
+  /// Píldora de una señal: ícono (directo / web) + nombre; la que se está
+  /// viendo se marca con degradado, borde verde y un punto.
   Widget _optionTile(int i) {
     final s = _links[i];
     final on = i == _index;
+    final txt = on ? (_dk ? Pal.accent : const Color(0xFF2F7A12)) : _fg;
     return Material(
-      color: on ? Pal.accent.withValues(alpha: 0.14) : _chipBg,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: on ? Pal.accent : _line),
-      ),
-      clipBehavior: Clip.antiAlias,
+      color: Colors.transparent,
       child: InkWell(
+        borderRadius: BorderRadius.circular(19),
         onTap: () => _selectSource(i),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        child: Ink(
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(19),
+            gradient: on
+                ? LinearGradient(
+                    colors: [
+                      Pal.lime.withValues(alpha: 0.22),
+                      Pal.cyan.withValues(alpha: 0.22),
+                    ],
+                  )
+                : null,
+            color: on ? null : _chipBg,
+            border: Border.all(
+              color: on ? Pal.accent : _line,
+              width: on ? 1.4 : 1,
+            ),
+          ),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 s.isIframe ? Icons.language_rounded : Icons.play_circle_rounded,
-                size: 18,
-                color: on ? Pal.accent : _fg60,
+                size: 17,
+                color: on ? txt : _fg60,
               ),
-              SizedBox(width: 7),
-              Expanded(
+              const SizedBox(width: 7),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 140),
                 child: Text(
                   s.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: on ? Pal.accent : _fg,
+                    color: txt,
                     fontWeight: FontWeight.w700,
-                    fontSize: 13,
+                    fontSize: 13.5,
                   ),
                 ),
               ),
-              if (on)
-                Icon(
-                  Icons.check_circle_rounded,
-                  size: 16,
-                  color: Pal.accent,
+              if (on) ...[
+                const SizedBox(width: 7),
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: Pal.accent,
+                    shape: BoxShape.circle,
+                  ),
                 ),
+              ],
             ],
           ),
         ),

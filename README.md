@@ -9,6 +9,11 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.35
+
+- **APK mucho más liviano:** el workflow ahora compila solo para arm64 (`--target-platform android-arm64`) en vez de incluir también arm y x86_64. Pasa de ~55 MB a aproximadamente 20-25 MB. Solo dejaría de instalar en celulares Android muy antiguos de 32 bits (anteriores a ~2017). Archivo: `.github/workflows/android-apk.yml`.
+- **Sin ventana de enlaces:** al tocar un evento se abre directo el reproductor (con la primera señal). Si el evento tiene varias, las opciones aparecen debajo del video en una sola línea de fichas deslizables (la que se ve lleva degradado verde-celeste y un punto); si tiene una sola, no se muestra nada extra. Archivos: `app/lib/main.dart` (se eliminó el diálogo `_SourcesDialog`) y `app/lib/live_player.dart`.
+
 ## Cambios 1.0.34
 
 - **Selector de deportes:** ahora muestra todos los deportes cargados en el panel, tengan o no eventos (los que no tienen se ven atenuados con «0»). Al elegir uno sin eventos, el inicio muestra «Sin eventos disponibles de este deporte.». Se quitó el recuadro «Todos»: el filtro se quita con la «×» de la barra o tocando de nuevo el deporte elegido.
