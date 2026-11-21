@@ -21,7 +21,7 @@ export 'models.dart';
 const String liveoFont = 'Outfit';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.32';
+const String liveoVersion = '1.0.33';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1881,50 +1881,96 @@ List<_SportCount> _sportCounts(List<LiveEvent> list) {
   return out;
 }
 
-/// Botón de filtro por deporte, a la izquierda de los chips (se enciende
-/// cuando hay un deporte elegido).
+/// Botón de filtro por deporte, a la izquierda de los chips. Sin filtro es un
+/// botón de ícono; con un deporte elegido pasa a ser una píldora con su logo
+/// (abre el selector) y una «×» que quita el filtro de un toque.
 class _SportFilterButton extends StatelessWidget {
-  const _SportFilterButton({required this.active, required this.onTap});
+  const _SportFilterButton({
+    required this.sport,
+    required this.onTap,
+    required this.onClear,
+  });
 
-  final bool active;
+  final String? sport;
   final VoidCallback onTap;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final c = active ? Pal.accent : _muted(context);
+    final active = sport != null;
+    final radius = BorderRadius.circular(active ? 18 : 8);
     return Padding(
       padding: const EdgeInsets.only(right: 7),
-      child: Semantics(
-        button: true,
-        label: 'Filtrar por deporte',
-        child: Material(
-          color: active ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(
-              color: active ? Pal.accent : cs.onSurface.withValues(alpha: 0.18),
-              width: active ? 1.4 : 1,
-            ),
-          ),
-          child: InkWell(
-            customBorder: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            onTap: onTap,
-            child: SizedBox(
-              width: 36,
-              child: Center(child: SvgIcon('list-filter', size: 18, color: c)),
-            ),
+      child: Material(
+        color: active ? Pal.accent.withValues(alpha: 0.14) : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(
+            color: active ? Pal.accent : cs.onSurface.withValues(alpha: 0.18),
+            width: active ? 1.4 : 1,
           ),
         ),
+        clipBehavior: Clip.antiAlias,
+        child: active
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Semantics(
+                    button: true,
+                    label: 'Cambiar deporte: $sport',
+                    child: InkWell(
+                      onTap: onTap,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(6, 5, 4, 5),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(13),
+                          child: SizedBox(
+                            width: 26,
+                            height: 26,
+                            child: SportPhoto(sport!, iconColor: Pal.accent),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Semantics(
+                    button: true,
+                    label: 'Quitar filtro de deporte',
+                    child: InkWell(
+                      onTap: onClear,
+                      child: const SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Icon(Icons.close_rounded, size: 18, color: Pal.accent),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Semantics(
+                button: true,
+                label: 'Filtrar por deporte',
+                child: InkWell(
+                  onTap: onTap,
+                  child: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: Center(
+                      child: SvgIcon('list-filter', size: 18, color: _muted(context)),
+                    ),
+                  ),
+                ),
+              ),
       ),
     );
   }
 }
 
-/// Hoja con los deportes disponibles. Devuelve el nombre elegido, o '' si se
-/// toca de nuevo el que ya estaba elegido (quita el filtro).
+/// Hoja con los deportes: grilla de logos grandes que ocupan todo el recuadro,
+/// sin texto, solo con la cantidad de eventos. El primer recuadro, «Todos»,
+/// quita el filtro. Devuelve el nombre elegido, o '' para quitar el filtro (o
+/// si se toca de nuevo el deporte ya elegido).
 class _SportSheet extends StatelessWidget {
   const _SportSheet({required this.sports, required this.selected});
 
@@ -1934,110 +1980,102 @@ class _SportSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    Widget tile(_SportCount s) {
-      final on = selected == s.name;
-      final tint = on ? Pal.accent : cs.onSurface;
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+    final total = sports.fold<int>(0, (a, s) => a + s.count);
+
+    Widget badge(int n, bool on) => Positioned(
+          top: 6,
+          right: 6,
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: on ? Pal.accent : Colors.black.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '$n',
+              style: TextStyle(
+                color: on ? Pal.ink : Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        );
+
+    Widget frame({
+      required String label,
+      required bool on,
+      required VoidCallback onTap,
+      required Widget child,
+      required int count,
+    }) {
+      return Semantics(
+        button: true,
+        selected: on,
+        label: label,
         child: Material(
-          color: on
-              ? Pal.accent.withValues(alpha: 0.10)
-              : cs.onSurface.withValues(alpha: 0.05),
+          color: cs.onSurface.withValues(alpha: 0.06),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(18),
             side: BorderSide(
               color: on ? Pal.accent : cs.onSurface.withValues(alpha: 0.08),
-              width: on ? 1.4 : 1,
+              width: on ? 2.4 : 1,
             ),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: () => Navigator.of(context).pop(on ? '' : s.name),
-            child: SizedBox(
-              height: 56,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: tint.withValues(alpha: on ? 0.16 : 0.08),
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: Center(
-                        child: SportGlyph(
-                          s.name,
-                          size: 24,
-                          color: on ? Pal.accent : _muted(context),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        s.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: on ? FontWeight.w700 : FontWeight.w600,
-                          color: on ? Pal.accent : null,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '${s.count}',
-                      style: TextStyle(
-                        color: _muted(context),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (on) ...[
-                      const SizedBox(width: 10),
-                      Container(
-                        width: 22,
-                        height: 22,
-                        decoration: const BoxDecoration(
-                          color: Pal.accent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.check_rounded,
-                          size: 15,
-                          color: Pal.ink,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+            onTap: onTap,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [child, badge(count, on)],
             ),
           ),
         ),
       );
     }
 
+    final tiles = <Widget>[
+      frame(
+        label: 'Todos los deportes',
+        on: selected == null,
+        count: total,
+        onTap: () => Navigator.of(context).pop(''),
+        child: Center(
+          child: Icon(
+            Icons.apps_rounded,
+            size: 52,
+            color: selected == null ? Pal.accent : cs.onSurface,
+          ),
+        ),
+      ),
+      for (final s in sports)
+        frame(
+          label: s.name,
+          on: selected == s.name,
+          count: s.count,
+          onTap: () => Navigator.of(context).pop(selected == s.name ? '' : s.name),
+          child: SportPhoto(
+            s.name,
+            iconColor: selected == s.name ? Pal.accent : cs.onSurface,
+          ),
+        ),
+    ];
+
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.75,
         ),
-        child: ListView(
+        child: GridView.count(
           shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
-              child: Text(
-                'Filtrar por deporte',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-            ),
-            for (final s in sports) tile(s),
-          ],
+          crossAxisCount: 3,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.08,
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          children: tiles,
         ),
       ),
     );
@@ -2334,6 +2372,10 @@ class _EventsHomeState extends State<EventsHome> {
     super.initState();
     widget.refresh.addListener(_onRefresh);
     _load(initial: true);
+    // Fotos de deportes en memoria antes de abrir el selector.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) SportIcons.precache(context);
+    });
   }
 
   @override
@@ -2441,8 +2483,12 @@ class _EventsHomeState extends State<EventsHome> {
             padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
             children: [
               _SportFilterButton(
-                active: _sport != null,
+                sport: _sport,
                 onTap: () => _pickSport(sports),
+                onClear: () => setState(() {
+                  _sport = null;
+                  _quick = _Quick.all;
+                }),
               ),
               _QuickChip(
                 label: 'Todos',

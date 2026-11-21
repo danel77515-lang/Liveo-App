@@ -9,6 +9,14 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.33
+
+- **Selector de deportes renovado (app):**
+  - Grilla de 3 columnas con el logo de cada deporte ocupando todo el recuadro, sin nombres: solo la foto y, en una esquina, la cantidad de eventos.
+  - Primer recuadro «Todos»: quita el filtro. Con un deporte filtrado, la barra del inicio muestra una píldora con su logo (abre el selector) y una «×» que vuelve al inicio de un toque.
+- **Carga rápida de logos:** las fotos de deportes (`app/assets/sports/photos/`, WebP de 360 px, ~40 KB c/u en vez de ~3 MB) van incluidas en la app y se precargan al abrir el inicio. Tienen prioridad sobre el logo subido desde el panel. Los logos del panel que sí se usan se guardan en disco (dependencia `cached_network_image`). Deportes sin foto (béisbol, vóleibol, golf…) usan su ícono, más grande.
+- Archivos: `app/lib/main.dart`, `app/lib/sport_icons.dart`, `app/pubspec.yaml` (versión 1.0.33+32, nueva dependencia y carpeta de assets) y `backend/src/bootstrap.php`.
+
 ## Cambios 1.0.32
 
 - **Chromecast corregido (app + backend):**

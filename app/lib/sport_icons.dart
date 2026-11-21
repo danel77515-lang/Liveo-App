@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
@@ -48,6 +49,58 @@ class SportIcons {
     'horse',
     'trophy',
   };
+
+  /// Fotos incluidas en la app (`assets/sports/photos/<clave>.webp`, ~40 KB):
+  /// se ven al instante, sin descargar nada. Clave = nombre sin tildes.
+  static const Map<String, String> _photos = {
+    'futbol': 'futbol',
+    'basquet': 'basquet',
+    'baloncesto': 'basquet',
+    'basketball': 'basquet',
+    'nba': 'basquet',
+    'tenis': 'tenis',
+    'rugby': 'rugby',
+    'ciclismo': 'ciclismo',
+    'boxeo': 'boxeo',
+    'mma': 'mma',
+    'ufc': 'mma',
+    'automovilismo': 'automovilismo',
+    'formula 1': 'automovilismo',
+    'f1': 'automovilismo',
+    'motociclismo': 'motociclismo',
+    'motogp': 'motociclismo',
+  };
+
+  static const List<String> _photoFiles = [
+    'futbol',
+    'basquet',
+    'tenis',
+    'rugby',
+    'ciclismo',
+    'boxeo',
+    'mma',
+    'automovilismo',
+    'motociclismo',
+  ];
+
+  /// Ruta del asset con la foto de un deporte, o null si no hay.
+  static String? photoFor(String name) {
+    final k = _photos[keyOf(name)];
+    return k == null ? null : 'assets/sports/photos/$k.webp';
+  }
+
+  /// Carga todas las fotos en memoria (llamar una vez al iniciar).
+  static void precache(BuildContext context) {
+    for (final k in _photoFiles) {
+      precacheImage(
+        ResizeImage(
+          AssetImage('assets/sports/photos/$k.webp'),
+          width: 360,
+        ),
+        context,
+      );
+    }
+  }
 
   /// Cambia cuando llega la lista del servidor (para repintar).
   static final ValueNotifier<int> version = ValueNotifier<int>(0);
@@ -131,6 +184,56 @@ class SvgIcon extends StatelessWidget {
       colorFilter: ColorFilter.mode(c, BlendMode.srcIn),
     );
   }
+}
+
+/// Imagen de un deporte que ocupa TODO el recuadro (sin márgenes): foto
+/// incluida en la app, o el logo del panel (con caché en disco), o el ícono.
+class SportPhoto extends StatelessWidget {
+  const SportPhoto(this.sport, {super.key, this.iconColor});
+
+  final String sport;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = SportIcons.photoFor(sport);
+    if (asset != null) {
+      return Image.asset(
+        asset,
+        fit: BoxFit.cover,
+        cacheWidth: 360,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, __, ___) => _icon(context),
+      );
+    }
+    final logo = SportIcons.logoFor(sport);
+    if (logo != null) {
+      return CachedNetworkImage(
+        imageUrl: logo,
+        fit: BoxFit.cover,
+        memCacheWidth: 360,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
+        placeholder: (_, __) => _icon(context),
+        errorWidget: (_, __, ___) => _icon(context),
+      );
+    }
+    return _icon(context);
+  }
+
+  Widget _icon(BuildContext context) => LayoutBuilder(
+        builder: (_, c) {
+          final s = (c.biggest.shortestSide.isFinite ? c.biggest.shortestSide : 80) * 0.62;
+          return Center(
+            child: SvgIcon(
+              SportIcons.forSport(sport),
+              size: s,
+              color: iconColor,
+            ),
+          );
+        },
+      );
 }
 
 /// Ícono de un deporte: su logo propio si el panel tiene uno, o el SVG elegido.
