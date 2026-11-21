@@ -21,7 +21,7 @@ export 'models.dart';
 const String liveoFont = 'Outfit';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.33';
+const String liveoVersion = '1.0.34';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1873,6 +1873,11 @@ List<_SportCount> _sportCounts(List<LiveEvent> list) {
     final s = e.sport.trim();
     if (s.isNotEmpty) m[s] = (m[s] ?? 0) + 1;
   }
+  // Deportes del panel sin eventos: también aparecen (con 0).
+  final seen = {for (final k in m.keys) SportIcons.keyOf(k)};
+  for (final n in SportIcons.catalogNames) {
+    if (seen.add(SportIcons.keyOf(n))) m[n] = 0;
+  }
   final out = [for (final x in m.entries) _SportCount(x.key, x.value)]
     ..sort((a, b) {
       final c = b.count.compareTo(a.count);
@@ -1967,10 +1972,10 @@ class _SportFilterButton extends StatelessWidget {
   }
 }
 
-/// Hoja con los deportes: grilla de logos grandes que ocupan todo el recuadro,
-/// sin texto, solo con la cantidad de eventos. El primer recuadro, «Todos»,
-/// quita el filtro. Devuelve el nombre elegido, o '' para quitar el filtro (o
-/// si se toca de nuevo el deporte ya elegido).
+/// Hoja con TODOS los deportes del panel (tengan o no eventos): grilla de logos
+/// grandes que ocupan todo el recuadro, sin texto, solo con la cantidad de
+/// eventos. Devuelve el nombre elegido, o '' si se toca de nuevo el deporte ya
+/// elegido (quita el filtro).
 class _SportSheet extends StatelessWidget {
   const _SportSheet({required this.sports, required this.selected});
 
@@ -1980,8 +1985,6 @@ class _SportSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final total = sports.fold<int>(0, (a, s) => a + s.count);
-
     Widget badge(int n, bool on) => Positioned(
           top: 6,
           right: 6,
@@ -2011,7 +2014,9 @@ class _SportSheet extends StatelessWidget {
       required Widget child,
       required int count,
     }) {
-      return Semantics(
+      return Opacity(
+        opacity: count == 0 && !on ? 0.5 : 1,
+        child: Semantics(
         button: true,
         selected: on,
         label: label,
@@ -2033,23 +2038,11 @@ class _SportSheet extends StatelessWidget {
             ),
           ),
         ),
+      ),
       );
     }
 
     final tiles = <Widget>[
-      frame(
-        label: 'Todos los deportes',
-        on: selected == null,
-        count: total,
-        onTap: () => Navigator.of(context).pop(''),
-        child: Center(
-          child: Icon(
-            Icons.apps_rounded,
-            size: 52,
-            color: selected == null ? Pal.accent : cs.onSurface,
-          ),
-        ),
-      ),
       for (final s in sports)
         frame(
           label: s.name,
@@ -2441,7 +2434,8 @@ class _EventsHomeState extends State<EventsHome> {
     setState(() => _sport = picked.isEmpty ? null : picked);
   }
 
-  String _emptyText() {
+  String _emptyText({bool sportEmpty = false}) {
+    if (sportEmpty) return 'Sin eventos disponibles de este deporte.';
     switch (_quick) {
       case _Quick.all:
         return 'Aún no hay eventos cargados.';
@@ -2484,7 +2478,7 @@ class _EventsHomeState extends State<EventsHome> {
             children: [
               _SportFilterButton(
                 sport: _sport,
-                onTap: () => _pickSport(sports),
+                onTap: () => _pickSport(_sportCounts(all)),
                 onClear: () => setState(() {
                   _sport = null;
                   _quick = _Quick.all;
@@ -2529,7 +2523,7 @@ class _EventsHomeState extends State<EventsHome> {
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(12, 40, 12, 110),
-                    children: [_Note(_emptyText())],
+                    children: [_Note(_emptyText(sportEmpty: _sport != null && base.isEmpty))],
                   )
                 : ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),

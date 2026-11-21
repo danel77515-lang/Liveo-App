@@ -9,6 +9,11 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.34
+
+- **Selector de deportes:** ahora muestra todos los deportes cargados en el panel, tengan o no eventos (los que no tienen se ven atenuados con «0»). Al elegir uno sin eventos, el inicio muestra «Sin eventos disponibles de este deporte.». Se quitó el recuadro «Todos»: el filtro se quita con la «×» de la barra o tocando de nuevo el deporte elegido.
+- Archivos: `app/lib/main.dart`, `app/lib/sport_icons.dart`, `app/pubspec.yaml` (1.0.34+33) y `backend/src/bootstrap.php`.
+
 ## Cambios 1.0.33
 
 - **Selector de deportes renovado (app):**

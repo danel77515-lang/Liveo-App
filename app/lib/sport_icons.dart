@@ -107,6 +107,9 @@ class SportIcons {
 
   static Map<String, String> _map = Map<String, String>.of(_defaults);
 
+  /// Todos los deportes del panel (nombre original), tengan o no eventos.
+  static List<String> catalogNames = const <String>[];
+
   /// Logos propios (URL) subidos desde el panel; tienen prioridad sobre el ícono.
   static Map<String, String> _logos = <String, String>{};
 
@@ -146,11 +149,13 @@ class SportIcons {
       if (data is! Map || data['items'] is! List) return;
       final next = <String, String>{};
       final logos = <String, String>{};
+      final names = <String>[];
       for (final e in data['items'] as List) {
         if (e is! Map) continue;
         final name = '${e['name'] ?? ''}'.trim();
         final icon = '${e['icon'] ?? ''}'.trim();
         if (name.isEmpty) continue;
+        names.add(name);
         next[keyOf(name)] = _available.contains(icon) ? icon : fallback;
         final logo = '${e['logo'] ?? ''}'.trim();
         if (logo.startsWith('http://') || logo.startsWith('https://')) {
@@ -159,6 +164,7 @@ class SportIcons {
       }
       _map = next;
       _logos = logos;
+      catalogNames = names;
       version.value++;
     } catch (_) {
       // Servidor antiguo o sin conexión: se mantienen los íconos de fábrica.
