@@ -1,7 +1,7 @@
 name: liveo
 description: Aplicación deportiva Liveo
 publish_to: none
-version: 1.0.35+34
+version: 1.0.36+35
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -18,6 +18,9 @@ dependencies:
   flutter_svg: ^2.0.10+1
   # Logos del panel con caché en disco (cargan al instante tras la primera vez).
   cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+  # Menú de compartir del sistema (Ajustes > Compartir Liveo).
+  share_plus: ^10.1.4
   # Chromecast (Google Cast). Versión fija: la API cambia entre versiones.
   flutter_chrome_cast: 2.0.0
 

@@ -9,6 +9,13 @@ Liveo/
 └── .github/    Workflow que genera la APK
 ```
 
+## Cambios 1.0.36
+
+- **Ajustes > App:** «Borrar datos de la app» pasa a **«Borrar caché»** (libera imágenes y logos descargados; ya no toca favoritos, historial ni ajustes) y se agrega **«Compartir App»**, que abre el menú de compartir del sistema con un mensaje y el enlace de descarga.
+- El enlace compartido sale de la variable `SHARE_URL` del repositorio (Settings > Secrets and variables > Actions > Variables). Si no existe, usa `https://github.com/<repo>/releases/latest` (solo sirve si el repositorio es público). Nuevas dependencias: `share_plus` y `flutter_cache_manager`.
+- Archivos: `app/lib/main.dart`, `app/lib/models.dart`, `app/pubspec.yaml` (1.0.36+35), `backend/src/bootstrap.php` y `.github/workflows/android-apk.yml`.
+- **Ajustes > App:** nuevo botón **Copyright** (ícono ©) que abre un aviso legal con el diseño de la app (borde degradado verde-celeste, texto y botón «Entendido»). Archivo: `app/lib/main.dart`.
+
 ## Cambios 1.0.35
 
 - **APK mucho más liviano:** el workflow ahora compila solo para arm64 (`--target-platform android-arm64`) en vez de incluir también arm y x86_64. Pasa de ~55 MB a aproximadamente 20-25 MB. Solo dejaría de instalar en celulares Android muy antiguos de 32 bits (anteriores a ~2017). Archivo: `.github/workflows/android-apk.yml`.

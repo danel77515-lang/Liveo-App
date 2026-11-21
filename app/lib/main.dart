@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'cast_service.dart';
 import 'live_player.dart';
@@ -21,7 +23,7 @@ export 'models.dart';
 const String liveoFont = 'Outfit';
 
 /// Versión visible de la app (mantener igual que pubspec.yaml).
-const String liveoVersion = '1.0.35';
+const String liveoVersion = '1.0.36';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -3211,6 +3213,153 @@ class _SettingsCard extends StatelessWidget {
   }
 }
 
+/// Aviso de copyright: tarjeta con borde degradado, ícono, texto y botón.
+Future<void> _showCopyright(BuildContext context) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Cerrar',
+    barrierColor: Colors.black.withValues(alpha: 0.72),
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (ctx, anim, sec) =>
+        const SafeArea(child: Center(child: _CopyrightDialog())),
+    transitionBuilder: (ctx, anim, sec, child) {
+      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.92, end: 1).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+class _CopyrightDialog extends StatelessWidget {
+  const _CopyrightDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = _isDark(context);
+    final inner = dark ? const Color(0xff0e140f) : Colors.white;
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.all(1.5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(26),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Pal.lime, Pal.cyan],
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          decoration: BoxDecoration(
+            color: inner,
+            borderRadius: BorderRadius.circular(24.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Pal.accent.withValues(alpha: 0.14),
+                    border: Border.all(
+                      color: Pal.accent.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.copyright_rounded,
+                    size: 30,
+                    color: Pal.accent,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Copyright',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Aviso legal',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: _muted(context)),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: Container(
+                  width: 96,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(2),
+                    gradient: const LinearGradient(
+                      colors: [Pal.lime, Pal.cyan],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Liveo no aloja ni retransmite ningún contenido. Todos los '
+                'enlaces pertenecen a sitios de terceros y están disponibles '
+                'de forma pública en internet; la app solo facilita el acceso '
+                'a ellos. Los derechos de cada transmisión son de sus '
+                'respectivos propietarios.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14.5, height: 1.45),
+              ),
+              const SizedBox(height: 20),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => Navigator.of(context).pop(),
+                  child: Ink(
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: const LinearGradient(
+                        colors: [Pal.lime, Pal.cyan],
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_rounded, size: 20, color: Pal.ink),
+                        SizedBox(width: 8),
+                        Text(
+                          'Entendido',
+                          style: TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.dark, required this.onTheme});
 
@@ -3222,35 +3371,33 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  Future<void> _clearData() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Borrar datos de la app'),
-        content: const Text(
-          'Se borrarán tus favoritos y el historial de búsquedas. '
-          'El tema y los demás ajustes no cambian.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Borrar'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final p = await SharedPreferences.getInstance();
-    await p.remove('favEvents');
-    await p.remove('recentSearches');
-    FavStore.instance.ids.value = <String>[];
+  /// Borra solo la caché (imágenes y logos descargados); favoritos, historial
+  /// y ajustes no se tocan.
+  Future<void> _clearCache() async {
+    try {
+      await DefaultCacheManager().emptyCache();
+    } catch (_) {}
+    final ic = PaintingBinding.instance.imageCache;
+    ic.clear();
+    ic.clearLiveImages();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Datos borrados.')));
+        .showSnackBar(const SnackBar(content: Text('Caché borrada.')));
+  }
+
+  /// Abre el menú de compartir del sistema con un mensaje y el enlace de descarga.
+  Future<void> _share() async {
+    final text = shareUrl.isEmpty
+        ? 'Mira deportes en vivo con Liveo.'
+        : 'Mira deportes en vivo con Liveo.\n$shareUrl';
+    try {
+      await Share.share(text, subject: 'Liveo');
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir el menú de compartir.')),
+      );
+    }
   }
 
   @override
@@ -3269,9 +3416,21 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const _Label('App'),
         _SettingsCard(
-          icon: Icons.delete_outline_rounded,
-          title: 'Borrar datos de la app',
-          onTap: _clearData,
+          icon: Icons.copyright_rounded,
+          title: 'Copyright',
+          onTap: () => _showCopyright(context),
+        ),
+        _SettingsCard(
+          icon: Icons.share_outlined,
+          title: 'Compartir App',
+          subtitle: 'Comparte la app en tus redes sociales',
+          onTap: _share,
+        ),
+        _SettingsCard(
+          icon: Icons.cleaning_services_outlined,
+          title: 'Borrar caché',
+          subtitle: 'Libera espacio. No borra favoritos ni ajustes',
+          onTap: _clearCache,
         ),
         const _SettingsCard(
           icon: Icons.info_outline_rounded,

@@ -2,6 +2,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+/// Enlace que se comparte desde Ajustes > Compartir Liveo (lo pone el workflow:
+/// --dart-define=SHARE_URL=...). Vacío = se comparte solo el texto.
+const String shareUrl = String.fromEnvironment('SHARE_URL', defaultValue: '');
+
 /// URL base de la API de Liveo. Se define al compilar con
 /// --dart-define=API_BASE_URL=http://IP/Liveo/api
 const String apiBase = String.fromEnvironment(
