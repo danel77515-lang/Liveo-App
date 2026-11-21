@@ -15,6 +15,8 @@ jobs:
     env:
       # Para cambiarla sin tocar el código: Settings > Secrets and variables > Actions > Variables > API_BASE_URL
       API_BASE_URL: ${{ vars.API_BASE_URL || 'http://192.168.54.109/Liveo/api' }}
+      # Enlace que se comparte desde Ajustes. Para cambiarlo: Variables > SHARE_URL.
+      SHARE_URL: ${{ vars.SHARE_URL || format('https://github.com/{0}/releases/latest', github.repository) }}
     defaults:
       run:
         working-directory: app
@@ -192,7 +194,7 @@ jobs:
       # el motor para arm, arm64 y x86_64 y el APK pesa ~55 MB; con arm64 queda en ~20-25 MB.
       # La ruta de salida sigue siendo app-release.apk.
       - name: Build release APK
-        run: flutter build apk --release --target-platform android-arm64 --dart-define=API_BASE_URL="$API_BASE_URL"
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=API_BASE_URL="$API_BASE_URL" --dart-define=SHARE_URL="$SHARE_URL"
 
       # El APK se publica en una Release (no cuenta en el cupo de artefactos de Actions).
       - name: Publish APK in a Release
