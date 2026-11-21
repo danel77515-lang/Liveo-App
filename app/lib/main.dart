@@ -3423,13 +3423,11 @@ class _SettingsPageState extends State<SettingsPage> {
         _SettingsCard(
           icon: Icons.share_outlined,
           title: 'Compartir App',
-          subtitle: 'Comparte la app en tus redes sociales',
           onTap: _share,
         ),
         _SettingsCard(
           icon: Icons.cleaning_services_outlined,
           title: 'Borrar caché',
-          subtitle: 'Libera espacio. No borra favoritos ni ajustes',
           onTap: _clearCache,
         ),
         const _SettingsCard(
